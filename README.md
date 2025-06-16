@@ -68,6 +68,10 @@ make clean && make
 
 **Clean C99**: Modular design with proper memory management and error handling
 
+## Known Issues
+
+- **Break Overlay Dialog Stacking**: Some applications/dialogs can still appear above the fullscreen break overlay despite `gtk_window_set_keep_above()` and `gtk_window_stick()`. This appears to be a limitation of GTK3 window management on certain desktop environments. Future solutions may require platform-specific approaches like X11 override-redirect windows or compositor-specific hints.
+
 ## Contributing
 
 See `CLAUDE.md` for development guidelines and project structure.

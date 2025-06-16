@@ -20,8 +20,8 @@ typedef struct {
 static const StateColor state_colors[] = {
     [TIMER_STATE_IDLE] = {0.5, 0.5, 0.5},          // Gray
     [TIMER_STATE_WORK] = {0.86, 0.20, 0.18},       // Red  
-    [TIMER_STATE_SHORT_BREAK] = {0.16, 0.63, 0.60}, // Teal
-    [TIMER_STATE_LONG_BREAK] = {0.15, 0.55, 0.82},  // Blue
+    [TIMER_STATE_SHORT_BREAK] = {0.18, 0.49, 0.20}, // Green (inverse of work: green bg)
+    [TIMER_STATE_LONG_BREAK] = {0.18, 0.49, 0.20},  // Green (same as short break)
     [TIMER_STATE_PAUSED] = {0.71, 0.54, 0.0}        // Yellow
 };
 
@@ -60,7 +60,13 @@ static void update_icon_surface(TrayIcon *self) {
         double progress = get_progress(self->remaining_seconds, self->total_seconds);
         if (progress > 0.0) {
             cairo_set_line_width(cr, self->size * 0.15); // 15% of icon size for border
-            cairo_set_source_rgba(cr, 0.18, 0.49, 0.20, 1.0); // Green progress color
+            
+            // Set progress arc color based on state (inverse colors)
+            if (self->state == TIMER_STATE_WORK) {
+                cairo_set_source_rgba(cr, 0.18, 0.49, 0.20, 1.0); // Green border for work (red bg)
+            } else { // Break states
+                cairo_set_source_rgba(cr, 0.86, 0.20, 0.18, 1.0); // Red border for breaks (green bg)
+            }
             
             // Draw arc from top, clockwise
             double start_angle = -G_PI / 2; // Start at top (90 degrees)

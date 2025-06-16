@@ -36,11 +36,10 @@ make clean && make
 ## System Tray
 
 - **Gray (●)**: Ready/Idle
-- **Red**: Work session with countdown
-- **Teal**: Short break with countdown  
-- **Blue**: Long break with countdown
+- **Red**: Work session with countdown and green progress arc
+- **Green**: Break sessions with countdown and red progress arc
 - **Yellow (||)**: Paused
-- **Progress Arc**: Fills clockwise during sessions
+- **Progress Arc**: Fills clockwise during sessions with inverse colors
 
 ## Keyboard Shortcuts
 

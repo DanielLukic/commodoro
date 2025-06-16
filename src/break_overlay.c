@@ -33,6 +33,7 @@ BreakOverlay* break_overlay_new(void) {
     gtk_window_set_skip_taskbar_hint(GTK_WINDOW(overlay->window), TRUE);
     gtk_window_set_skip_pager_hint(GTK_WINDOW(overlay->window), TRUE);
     gtk_window_set_keep_above(GTK_WINDOW(overlay->window), TRUE);
+    gtk_window_stick(GTK_WINDOW(overlay->window));  // Show on all workspaces/desktops
     gtk_window_fullscreen(GTK_WINDOW(overlay->window));
     
     // Set black background

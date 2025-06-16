@@ -44,6 +44,12 @@ void audio_manager_play_session_complete(AudioManager *audio);
 void audio_manager_play_long_break_start(AudioManager *audio);
 
 /**
+ * Plays timer finish sound (when breaks end)
+ * @param audio AudioManager instance
+ */
+void audio_manager_play_timer_finish(AudioManager *audio);
+
+/**
  * Sets master volume (0.0 to 1.0)
  * @param audio AudioManager instance
  * @param volume Volume level

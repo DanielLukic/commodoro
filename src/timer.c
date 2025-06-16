@@ -26,6 +26,7 @@ struct _Timer {
     // Callbacks
     TimerStateCallback state_callback;
     TimerTickCallback tick_callback;
+    TimerSessionCompleteCallback session_complete_callback;
     gpointer user_data;
 };
 
@@ -81,11 +82,13 @@ void timer_set_durations(Timer *timer, int work_duration, int short_break_durati
 }
 
 void timer_set_callbacks(Timer *timer, TimerStateCallback state_cb,
-                        TimerTickCallback tick_cb, gpointer user_data) {
+                        TimerTickCallback tick_cb, TimerSessionCompleteCallback session_complete_cb,
+                        gpointer user_data) {
     if (!timer) return;
     
     timer->state_callback = state_cb;
     timer->tick_callback = tick_cb;
+    timer->session_complete_callback = session_complete_cb;
     timer->user_data = user_data;
 }
 
@@ -201,9 +204,14 @@ static void timer_transition_to_next_state(Timer *timer) {
     
     switch (timer->state) {
         case TIMER_STATE_WORK:
-            // Work session finished - immediately start appropriate break
+            // Work session finished - signal completion then start appropriate break
             timer->session_count++;
             timer->work_session_just_finished = TRUE;
+            
+            // Signal work session completion (triggers session_complete sound)
+            if (timer->session_complete_callback) {
+                timer->session_complete_callback(timer, TIMER_STATE_WORK, timer->user_data);
+            }
             
             // Determine which type of break to start
             TimerState break_type;
@@ -219,8 +227,14 @@ static void timer_transition_to_next_state(Timer *timer) {
             
         case TIMER_STATE_SHORT_BREAK:
         case TIMER_STATE_LONG_BREAK:
-            // Break finished - always go to IDLE and wait for user input
+            // Break finished - signal completion and go to IDLE
             timer->work_session_just_finished = FALSE;  // Clear the flag
+            
+            // Signal break completion (triggers timer_finish sound)
+            if (timer->session_complete_callback) {
+                timer->session_complete_callback(timer, timer->state, timer->user_data);
+            }
+            
             timer_set_state(timer, TIMER_STATE_IDLE);
             should_auto_start = FALSE;  // Never auto-start after breaks
             break;

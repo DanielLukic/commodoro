@@ -33,6 +33,14 @@ typedef void (*TimerStateCallback)(Timer *timer, TimerState state, gpointer user
 typedef void (*TimerTickCallback)(Timer *timer, int minutes, int seconds, gpointer user_data);
 
 /**
+ * Callback function for session completion events (work/break finished)
+ * @param timer Timer instance
+ * @param completed_state The state that just completed
+ * @param user_data User data passed to callback
+ */
+typedef void (*TimerSessionCompleteCallback)(Timer *timer, TimerState completed_state, gpointer user_data);
+
+/**
  * Creates a new timer instance
  * @return New Timer object
  */
@@ -60,10 +68,12 @@ void timer_set_durations(Timer *timer, int work_duration, int short_break_durati
  * @param timer Timer instance
  * @param state_cb Callback for state changes (can be NULL)
  * @param tick_cb Callback for timer updates (can be NULL)
+ * @param session_complete_cb Callback for session completion (can be NULL)
  * @param user_data User data passed to callbacks
  */
 void timer_set_callbacks(Timer *timer, TimerStateCallback state_cb, 
-                        TimerTickCallback tick_cb, gpointer user_data);
+                        TimerTickCallback tick_cb, TimerSessionCompleteCallback session_complete_cb,
+                        gpointer user_data);
 
 /**
  * Starts the timer

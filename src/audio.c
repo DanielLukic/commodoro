@@ -83,6 +83,11 @@ void audio_manager_play_long_break_start(AudioManager *audio) {
     play_sound_file(audio, "long_break_start");
 }
 
+void audio_manager_play_timer_finish(AudioManager *audio) {
+    if (!audio || !audio->enabled) return;
+    play_sound_file(audio, "timer_finish");
+}
+
 void audio_manager_set_volume(AudioManager *audio, double volume) {
     if (!audio) return;
     
@@ -141,24 +146,49 @@ static void play_sound_file(AudioManager *audio, const char *sound_type) {
     // Stop any currently playing sound
     gst_element_set_state(audio->playbin, GST_STATE_NULL);
     
-    // Generate different tones based on sound type using the configured volume
-    char pipeline_desc[256];
-    int freq = 440;  // Default frequency
+    // Generate different tones based on sound type to match Python's chime system
+    char pipeline_desc[512];
     
+    // Create multi-tone chimes based on Python's chord system
     if (g_strcmp0(sound_type, "work_start") == 0) {
-        freq = 440;  // Low tone for work start
+        // Work start - Uplifting major chord (C4, E4, G4: 261.63, 329.63, 392.00)
+        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
+                   "audiotestsrc wave=sine freq=261.63 volume=0.1 ! audioconvert ! "
+                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
+                   "audiotestsrc wave=sine freq=329.63 volume=0.1 ! audioconvert ! mix. "
+                   "audiotestsrc wave=sine freq=392.00 volume=0.1 ! audioconvert ! mix.");
     } else if (g_strcmp0(sound_type, "break_start") == 0) {
-        freq = 660;  // Higher tone for break start  
+        // Break start - Relaxing minor chord (A3, C4, E4: 220.00, 261.63, 329.63)
+        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
+                   "audiotestsrc wave=sine freq=220.00 volume=0.1 ! audioconvert ! "
+                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
+                   "audiotestsrc wave=sine freq=261.63 volume=0.1 ! audioconvert ! mix. "
+                   "audiotestsrc wave=sine freq=329.63 volume=0.1 ! audioconvert ! mix.");
     } else if (g_strcmp0(sound_type, "session_complete") == 0) {
-        freq = 550;  // Medium tone for session complete
+        // Session complete - Achievement sound (C4, G4, C5: 261.63, 392.00, 523.25)
+        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
+                   "audiotestsrc wave=sine freq=261.63 volume=0.1 ! audioconvert ! "
+                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
+                   "audiotestsrc wave=sine freq=392.00 volume=0.1 ! audioconvert ! mix. "
+                   "audiotestsrc wave=sine freq=523.25 volume=0.1 ! audioconvert ! mix.");
     } else if (g_strcmp0(sound_type, "long_break_start") == 0) {
-        freq = 880;  // Distinctive tone for long break
+        // Long break - Same as break but slightly different volume mix
+        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
+                   "audiotestsrc wave=sine freq=220.00 volume=0.12 ! audioconvert ! "
+                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
+                   "audiotestsrc wave=sine freq=261.63 volume=0.1 ! audioconvert ! mix. "
+                   "audiotestsrc wave=sine freq=329.63 volume=0.08 ! audioconvert ! mix.");
+    } else if (g_strcmp0(sound_type, "timer_finish") == 0) {
+        // Timer finish - Gentle notification (A4, A5: 440.00, 880.00)
+        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
+                   "audiotestsrc wave=sine freq=440.00 volume=0.15 ! audioconvert ! "
+                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
+                   "audiotestsrc wave=sine freq=880.00 volume=0.1 ! audioconvert ! mix.");
+    } else {
+        // Fallback - simple tone
+        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
+                   "audiotestsrc wave=sine freq=440 volume=0.2 ! audioconvert ! autoaudiosink");
     }
-    
-    // Create pipeline description with fixed reasonable volume (0.3)
-    g_snprintf(pipeline_desc, sizeof(pipeline_desc),
-               "audiotestsrc wave=sine freq=%d volume=0.3 ! audioconvert ! autoaudiosink",
-               freq);
     
     
     // Create a temporary pipeline for the tone

@@ -47,6 +47,7 @@ static void on_reset_clicked(GtkButton *button, GomodaroApp *app);
 static void on_settings_clicked(GtkButton *button, GomodaroApp *app);
 static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user_data);
 static void on_timer_tick(Timer *timer, int minutes, int seconds, gpointer user_data);
+static void on_timer_session_complete(Timer *timer, TimerState completed_state, gpointer user_data);
 static void update_display(GomodaroApp *app);
 static gboolean on_key_pressed(GtkWidget *widget, GdkEventKey *event, gpointer user_data);
 static void on_tray_status_action(const char *action, gpointer user_data);
@@ -194,7 +195,7 @@ static void activate(GtkApplication *gtk_app, gpointer user_data) {
     app->timer = timer_new();
     timer_set_durations(app->timer, app->settings->work_duration, app->settings->short_break_duration, 
                        app->settings->long_break_duration, app->settings->sessions_until_long_break);
-    timer_set_callbacks(app->timer, on_timer_state_changed, on_timer_tick, app);
+    timer_set_callbacks(app->timer, on_timer_state_changed, on_timer_tick, on_timer_session_complete, app);
     
     // Set timer mode based on test mode
     if (cmd_args && cmd_args->test_mode) {
@@ -453,6 +454,29 @@ static void on_timer_tick(Timer *timer, int minutes, int seconds, gpointer user_
     // Update break overlay if visible
     if (break_overlay_is_visible(app->break_overlay)) {
         break_overlay_update_time(app->break_overlay, minutes, seconds);
+    }
+}
+
+static void on_timer_session_complete(Timer *timer, TimerState completed_state, gpointer user_data) {
+    (void)timer; // Suppress unused parameter warning
+    GomodaroApp *app = (GomodaroApp *)user_data;
+    
+    // Play appropriate sound based on what just completed
+    switch (completed_state) {
+        case TIMER_STATE_WORK:
+            // Work session completed - play session complete sound
+            audio_manager_play_session_complete(app->audio);
+            break;
+            
+        case TIMER_STATE_SHORT_BREAK:
+        case TIMER_STATE_LONG_BREAK:
+            // Break completed - play timer finish sound (matches Python behavior)
+            audio_manager_play_timer_finish(app->audio);
+            break;
+            
+        default:
+            // Other states don't trigger completion sounds
+            break;
     }
 }
 

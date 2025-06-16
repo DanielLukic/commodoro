@@ -1,6 +1,11 @@
 #include "input_monitor.h"
 #include <stdio.h>
 #include <gtk/gtk.h>
+#include <gdk/gdkx.h>
+#include <X11/Xlib.h>
+#include <X11/extensions/XInput2.h>
+#include <pthread.h>
+#include <unistd.h>
 
 struct _InputMonitor {
     gboolean is_active;
@@ -8,9 +13,20 @@ struct _InputMonitor {
     gpointer user_data;
     GtkWidget *window;
     gulong signal_handler_id;
+    
+    // X11 global input monitoring
+    Display *x11_display;
+    pthread_t x11_thread;
+    gboolean x11_thread_running;
+    gboolean use_global_monitoring;
+    int xi_opcode;  // XInput2 opcode for event filtering
 };
 
 static gboolean on_window_event(GtkWidget *widget, GdkEvent *event, gpointer user_data);
+static void* x11_monitor_thread(void *data);
+static gboolean trigger_callback_idle(gpointer user_data);
+static gboolean setup_x11_monitoring(InputMonitor *monitor);
+static void cleanup_x11_monitoring(InputMonitor *monitor);
 
 InputMonitor* input_monitor_new(void) {
     InputMonitor *monitor = g_malloc0(sizeof(InputMonitor));
@@ -21,6 +37,12 @@ InputMonitor* input_monitor_new(void) {
     monitor->window = NULL;
     monitor->signal_handler_id = 0;
     
+    // X11 global monitoring
+    monitor->x11_display = NULL;
+    monitor->x11_thread_running = FALSE;
+    monitor->use_global_monitoring = TRUE;  // Default to global monitoring
+    monitor->xi_opcode = 0;
+    
     return monitor;
 }
 
@@ -28,6 +50,7 @@ void input_monitor_free(InputMonitor *monitor) {
     if (!monitor) return;
     
     input_monitor_stop(monitor);
+    cleanup_x11_monitoring(monitor);
     g_free(monitor);
 }
 
@@ -44,21 +67,40 @@ void input_monitor_set_window(InputMonitor *monitor, GtkWidget *window) {
 }
 
 void input_monitor_start(InputMonitor *monitor) {
-    if (!monitor || monitor->is_active || !monitor->window) return;
-    
+    if (!monitor || monitor->is_active) return;
     
     monitor->is_active = TRUE;
     
-    // Connect to window's event signal to detect any user activity
-    monitor->signal_handler_id = g_signal_connect(monitor->window, "event", 
-                                                 G_CALLBACK(on_window_event), monitor);
+    if (monitor->use_global_monitoring) {
+        // Use X11 global input monitoring
+        if (setup_x11_monitoring(monitor)) {
+            g_print("Global input monitoring started\n");
+        } else {
+            // Fallback to window-based monitoring
+            g_print("Failed to setup global monitoring, using window-based fallback\n");
+            monitor->use_global_monitoring = FALSE;
+            
+            if (monitor->window) {
+                monitor->signal_handler_id = g_signal_connect(monitor->window, "event", 
+                                                             G_CALLBACK(on_window_event), monitor);
+            }
+        }
+    } else if (monitor->window) {
+        // Use GTK window event monitoring (fallback)
+        monitor->signal_handler_id = g_signal_connect(monitor->window, "event", 
+                                                     G_CALLBACK(on_window_event), monitor);
+    }
 }
 
 void input_monitor_stop(InputMonitor *monitor) {
     if (!monitor || !monitor->is_active) return;
     
+    // Stop X11 global monitoring
+    if (monitor->use_global_monitoring) {
+        cleanup_x11_monitoring(monitor);
+    }
     
-    // Disconnect the signal handler
+    // Disconnect the GTK signal handler if using window monitoring
     if (monitor->signal_handler_id && monitor->window) {
         g_signal_handler_disconnect(monitor->window, monitor->signal_handler_id);
         monitor->signal_handler_id = 0;
@@ -102,4 +144,152 @@ static gboolean on_window_event(GtkWidget *widget, GdkEvent *event, gpointer use
     }
     
     return FALSE; // Let other handlers process the event
+}
+
+// X11 Global Input Monitoring Implementation
+
+static gboolean trigger_callback_idle(gpointer user_data) {
+    InputMonitor *monitor = (InputMonitor*)user_data;
+    
+    if (monitor->callback && monitor->is_active) {
+        monitor->callback(monitor->user_data);
+    }
+    
+    return G_SOURCE_REMOVE;
+}
+
+static void* x11_monitor_thread(void *data) {
+    InputMonitor *monitor = (InputMonitor*)data;
+    Display *display = monitor->x11_display;
+    
+    if (!display) {
+        return NULL;
+    }
+    
+    // Set up XInput2 for raw input events
+    XIEventMask evmask;
+    unsigned char mask[(XI_LASTEVENT + 7)/8] = { 0 };
+    
+    XISetMask(mask, XI_RawKeyPress);
+    XISetMask(mask, XI_RawButtonPress);
+    XISetMask(mask, XI_RawMotion);
+    
+    evmask.deviceid = XIAllMasterDevices;
+    evmask.mask_len = sizeof(mask);
+    evmask.mask = mask;
+    
+    if (XISelectEvents(display, DefaultRootWindow(display), &evmask, 1) != Success) {
+        g_warning("Failed to select XInput2 events");
+        return NULL;
+    }
+    
+    // Event loop
+    while (monitor->x11_thread_running) {
+        if (XPending(display) > 0) {
+            XEvent event;
+            XNextEvent(display, &event);
+            
+            if (event.type == GenericEvent && event.xcookie.extension == monitor->xi_opcode) {
+                if (XGetEventData(display, &event.xcookie)) {
+                    XIRawEvent *raw_event = (XIRawEvent*)event.xcookie.data;
+                    
+                    // Check for activity (keyboard press, mouse button, or significant mouse movement)
+                    if (raw_event->evtype == XI_RawKeyPress || 
+                        raw_event->evtype == XI_RawButtonPress ||
+                        raw_event->evtype == XI_RawMotion) {
+                        
+                        // For mouse motion, only trigger on significant movement
+                        if (raw_event->evtype == XI_RawMotion) {
+                            // Simple threshold to avoid triggering on tiny movements
+                            static double last_x = 0, last_y = 0;
+                            double curr_x = 0, curr_y = 0;
+                            
+                            // Get current mouse position (simplified)
+                            if (raw_event->valuators.mask_len > 0) {
+                                if (XIMaskIsSet(raw_event->valuators.mask, 0)) curr_x = raw_event->raw_values[0];
+                                if (XIMaskIsSet(raw_event->valuators.mask, 1)) curr_y = raw_event->raw_values[1];
+                                
+                                double dx = curr_x - last_x;
+                                double dy = curr_y - last_y;
+                                double distance = dx*dx + dy*dy;
+                                
+                                // Only trigger on movements > 10 pixels
+                                if (distance < 100) {
+                                    XFreeEventData(display, &event.xcookie);
+                                    continue;
+                                }
+                                
+                                last_x = curr_x;
+                                last_y = curr_y;
+                            }
+                        }
+                        
+                        // Activity detected - trigger callback in main thread
+                        g_idle_add(trigger_callback_idle, monitor);
+                        monitor->x11_thread_running = FALSE; // Stop monitoring
+                        break;
+                    }
+                    
+                    XFreeEventData(display, &event.xcookie);
+                }
+            }
+        } else {
+            // Small sleep to avoid busy waiting
+            usleep(10000); // 10ms
+        }
+    }
+    
+    return NULL;
+}
+
+static gboolean setup_x11_monitoring(InputMonitor *monitor) {
+    // Try to connect to X11 display
+    monitor->x11_display = XOpenDisplay(NULL);
+    if (!monitor->x11_display) {
+        g_warning("Failed to open X11 display for global input monitoring");
+        return FALSE;
+    }
+    
+    // Check for XInput2 extension
+    int event, error;
+    if (!XQueryExtension(monitor->x11_display, "XInputExtension", &monitor->xi_opcode, &event, &error)) {
+        g_warning("XInput extension not available");
+        XCloseDisplay(monitor->x11_display);
+        monitor->x11_display = NULL;
+        return FALSE;
+    }
+    
+    int major = 2, minor = 0;
+    if (XIQueryVersion(monitor->x11_display, &major, &minor) != Success) {
+        g_warning("XInput2 not available");
+        XCloseDisplay(monitor->x11_display);
+        monitor->x11_display = NULL;
+        return FALSE;
+    }
+    
+    // Start monitoring thread
+    monitor->x11_thread_running = TRUE;
+    if (pthread_create(&monitor->x11_thread, NULL, x11_monitor_thread, monitor) != 0) {
+        g_warning("Failed to create X11 monitoring thread");
+        monitor->x11_thread_running = FALSE;
+        XCloseDisplay(monitor->x11_display);
+        monitor->x11_display = NULL;
+        return FALSE;
+    }
+    
+    return TRUE;
+}
+
+static void cleanup_x11_monitoring(InputMonitor *monitor) {
+    if (monitor->x11_thread_running) {
+        monitor->x11_thread_running = FALSE;
+        
+        // Wait for thread to finish
+        pthread_join(monitor->x11_thread, NULL);
+    }
+    
+    if (monitor->x11_display) {
+        XCloseDisplay(monitor->x11_display);
+        monitor->x11_display = NULL;
+    }
 }

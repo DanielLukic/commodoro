@@ -39,6 +39,8 @@ typedef struct {
     Config *config;              // Configuration manager
     InputMonitor *input_monitor; // User activity monitor
     CmdLineArgs *args;           // Command line arguments
+    guint idle_check_source;     // Idle detection timer source
+    gboolean paused_by_idle;     // Track if timer was paused due to idle
 } GomodaroApp;
 
 static void on_start_clicked(GtkButton *button, GomodaroApp *app);
@@ -64,6 +66,9 @@ static void on_tray_start_clicked(GtkMenuItem *item, gpointer user_data);
 static void on_tray_reset_clicked(GtkMenuItem *item, gpointer user_data);
 static gboolean on_input_activity_detected(gpointer user_data);
 static gboolean delayed_window_present(gpointer user_data);
+static gboolean check_idle_timeout(gpointer user_data);
+static void start_idle_monitoring(GomodaroApp *app);
+static void stop_idle_monitoring(GomodaroApp *app);
 
 // Command line argument parsing
 static int parse_duration_to_seconds(const char *duration_str) {
@@ -403,6 +408,12 @@ static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user
             // Hide break overlay when returning to idle
             break_overlay_hide(app->break_overlay);
             
+            // Stop idle monitoring when idle
+            stop_idle_monitoring(app);
+            
+            // Clear idle pause flag
+            app->paused_by_idle = FALSE;
+            
             // Start input monitoring if auto-start is enabled
             if (app->settings && app->settings->auto_start_work_after_break) {
                 g_print("Timer transitioned to IDLE, starting input monitor for auto-start\n");
@@ -422,6 +433,8 @@ static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user
             break_overlay_hide(app->break_overlay);
             // Stop input monitoring when work starts
             input_monitor_stop(app->input_monitor);
+            // Start idle detection during work sessions
+            start_idle_monitoring(app);
             break;
             
         case TIMER_STATE_SHORT_BREAK:
@@ -434,6 +447,8 @@ static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user
             int minutes, seconds;
             timer_get_remaining(app->timer, &minutes, &seconds);
             break_overlay_show(app->break_overlay, "Short Break", minutes, seconds);
+            // Stop idle monitoring during breaks
+            stop_idle_monitoring(app);
             break;
             
         case TIMER_STATE_LONG_BREAK:
@@ -445,12 +460,18 @@ static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user
             // Show break overlay
             timer_get_remaining(app->timer, &minutes, &seconds);
             break_overlay_show(app->break_overlay, "Long Break", minutes, seconds);
+            // Stop idle monitoring during breaks
+            stop_idle_monitoring(app);
             break;
             
         case TIMER_STATE_PAUSED:
             gtk_button_set_label(GTK_BUTTON(app->start_button), "Resume");
             gtk_widget_set_sensitive(app->start_button, TRUE);
             gtk_widget_set_sensitive(app->reset_button, TRUE);
+            // Stop idle monitoring when paused (unless paused by idle)
+            if (!app->paused_by_idle) {
+                stop_idle_monitoring(app);
+            }
             break;
     }
     
@@ -740,6 +761,9 @@ static void on_auto_start_toggled(GtkToggleButton *button, gpointer user_data) {
 static void cleanup_app(GomodaroApp *app) {
     if (!app) return;
     
+    // Stop idle monitoring
+    stop_idle_monitoring(app);
+    
     // Save settings one final time (config manager handles in-memory vs persistent)
     if (app->settings && app->config) {
         config_save_settings(app->config, app->settings);
@@ -839,11 +863,29 @@ static gboolean on_input_activity_detected(gpointer user_data) {
         return G_SOURCE_REMOVE;
     }
     
-    // Only auto-start if timer is in IDLE state and auto-start is enabled
     TimerState current_state = timer_get_state(app->timer);
-    g_print("on_input_activity_detected: current_state=%d, auto_start=%d\n", 
-            current_state, app->settings ? app->settings->auto_start_work_after_break : 0);
+    g_print("on_input_activity_detected: current_state=%d, auto_start=%d, paused_by_idle=%d\n", 
+            current_state, app->settings ? app->settings->auto_start_work_after_break : 0,
+            app->paused_by_idle);
     
+    // Handle auto-resume from idle pause
+    if (current_state == TIMER_STATE_PAUSED && app->paused_by_idle) {
+        g_print("Auto-resuming work session after idle pause\n");
+        app->paused_by_idle = FALSE;
+        
+        timer_start(app->timer);
+        
+        // Show notification that we're resuming
+        if (!gtk_widget_get_visible(app->window)) {
+            gtk_widget_show(app->window);
+            gtk_window_present(GTK_WINDOW(app->window));
+            gtk_window_set_urgency_hint(GTK_WINDOW(app->window), TRUE);
+        }
+        
+        return G_SOURCE_REMOVE;
+    }
+    
+    // Handle auto-start after break
     if (current_state == TIMER_STATE_IDLE && 
         app->settings && app->settings->auto_start_work_after_break) {
         
@@ -863,10 +905,80 @@ static gboolean on_input_activity_detected(gpointer user_data) {
             gtk_window_present(GTK_WINDOW(app->window));
             gtk_window_set_urgency_hint(GTK_WINDOW(app->window), TRUE);
         }
-    } else {
     }
     
     return G_SOURCE_REMOVE; // Remove this idle source
+}
+
+static gboolean check_idle_timeout(gpointer user_data) {
+    GomodaroApp *app = (GomodaroApp *)user_data;
+    
+    if (!app || !app->input_monitor || !app->settings) {
+        return G_SOURCE_CONTINUE;
+    }
+    
+    // Only check idle time during work sessions
+    TimerState state = timer_get_state(app->timer);
+    if (state != TIMER_STATE_WORK) {
+        return G_SOURCE_CONTINUE;
+    }
+    
+    // Get current idle time
+    int idle_seconds = input_monitor_get_idle_time(app->input_monitor);
+    if (idle_seconds < 0) {
+        // Error getting idle time, continue checking
+        return G_SOURCE_CONTINUE;
+    }
+    
+    int idle_timeout_seconds = app->settings->idle_timeout_minutes * 60;
+    
+    g_print("Idle check: %d seconds idle (timeout: %d seconds)\n", idle_seconds, idle_timeout_seconds);
+    
+    if (idle_seconds >= idle_timeout_seconds) {
+        g_print("Idle timeout reached, pausing timer\n");
+        
+        // Pause the timer due to idle
+        app->paused_by_idle = TRUE;
+        timer_pause(app->timer);
+        
+        // Play idle pause sound
+        audio_manager_play_idle_pause(app->audio);
+        
+        // Start monitoring for activity to resume
+        input_monitor_start(app->input_monitor);
+        
+        // Update tooltip to indicate idle pause
+        tray_icon_set_tooltip(app->tray_icon, "Commodoro - Paused (idle)");
+        
+        // Update status tray with idle pause indication
+        cairo_surface_t *surface = tray_icon_get_surface(app->tray_icon);
+        if (surface) {
+            tray_status_icon_update(app->status_tray, surface, "Commodoro - Paused (idle)");
+        }
+    }
+    
+    return G_SOURCE_CONTINUE;
+}
+
+static void start_idle_monitoring(GomodaroApp *app) {
+    if (!app || !app->settings || !app->settings->enable_idle_detection) {
+        return;
+    }
+    
+    // Stop any existing idle check
+    stop_idle_monitoring(app);
+    
+    // Start periodic idle checking (every 30 seconds)
+    app->idle_check_source = g_timeout_add_seconds(30, check_idle_timeout, app);
+    g_print("Started idle monitoring (checking every 30 seconds)\n");
+}
+
+static void stop_idle_monitoring(GomodaroApp *app) {
+    if (app && app->idle_check_source > 0) {
+        g_source_remove(app->idle_check_source);
+        app->idle_check_source = 0;
+        g_print("Stopped idle monitoring\n");
+    }
 }
 
 int main(int argc, char *argv[]) {

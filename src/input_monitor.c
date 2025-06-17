@@ -4,6 +4,7 @@
 #include <gdk/gdkx.h>
 #include <X11/Xlib.h>
 #include <X11/extensions/XInput2.h>
+#include <X11/extensions/scrnsaver.h>
 #include <pthread.h>
 #include <unistd.h>
 
@@ -304,4 +305,42 @@ static void cleanup_x11_monitoring(InputMonitor *monitor) {
         XCloseDisplay(monitor->x11_display);
         monitor->x11_display = NULL;
     }
+}
+
+int input_monitor_get_idle_time(InputMonitor *monitor) {
+    (void)monitor; // Not needed for this function
+    
+    Display *display = XOpenDisplay(NULL);
+    if (!display) {
+        g_warning("Failed to open X11 display for idle time detection");
+        return -1;
+    }
+    
+    int event_base, error_base;
+    if (!XScreenSaverQueryExtension(display, &event_base, &error_base)) {
+        g_warning("XScreenSaver extension not available");
+        XCloseDisplay(display);
+        return -1;
+    }
+    
+    XScreenSaverInfo *info = XScreenSaverAllocInfo();
+    if (!info) {
+        g_warning("Failed to allocate XScreenSaverInfo");
+        XCloseDisplay(display);
+        return -1;
+    }
+    
+    if (!XScreenSaverQueryInfo(display, DefaultRootWindow(display), info)) {
+        g_warning("Failed to query idle time");
+        XFree(info);
+        XCloseDisplay(display);
+        return -1;
+    }
+    
+    int idle_seconds = info->idle / 1000;  // Convert milliseconds to seconds
+    
+    XFree(info);
+    XCloseDisplay(display);
+    
+    return idle_seconds;
 }

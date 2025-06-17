@@ -61,6 +61,13 @@ void input_monitor_stop(InputMonitor *monitor);
  */
 gboolean input_monitor_is_active(InputMonitor *monitor);
 
+/**
+ * Gets the current system idle time in seconds
+ * @param monitor InputMonitor instance
+ * @return Idle time in seconds, or -1 on error
+ */
+int input_monitor_get_idle_time(InputMonitor *monitor);
+
 G_END_DECLS
 
 #endif // INPUT_MONITOR_H

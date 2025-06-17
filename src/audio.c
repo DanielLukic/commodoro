@@ -88,6 +88,16 @@ void audio_manager_play_timer_finish(AudioManager *audio) {
     play_sound_file(audio, "timer_finish");
 }
 
+void audio_manager_play_idle_pause(AudioManager *audio) {
+    if (!audio || !audio->enabled) return;
+    play_sound_file(audio, "idle_pause");
+}
+
+void audio_manager_play_idle_resume(AudioManager *audio) {
+    if (!audio || !audio->enabled) return;
+    play_sound_file(audio, "idle_resume");
+}
+
 void audio_manager_set_volume(AudioManager *audio, double volume) {
     if (!audio) return;
     
@@ -184,6 +194,18 @@ static void play_sound_file(AudioManager *audio, const char *sound_type) {
                    "audiotestsrc wave=sine freq=440.00 volume=0.15 ! audioconvert ! "
                    "audiomixer name=mix ! audioconvert ! autoaudiosink "
                    "audiotestsrc wave=sine freq=880.00 volume=0.1 ! audioconvert ! mix.");
+    } else if (g_strcmp0(sound_type, "idle_pause") == 0) {
+        // Idle pause - Soft descending tone (F4, D4: 349.23, 293.66)
+        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
+                   "audiotestsrc wave=sine freq=349.23 volume=0.08 ! audioconvert ! "
+                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
+                   "audiotestsrc wave=sine freq=293.66 volume=0.06 ! audioconvert ! mix.");
+    } else if (g_strcmp0(sound_type, "idle_resume") == 0) {
+        // Idle resume - Soft ascending tone (D4, F4: 293.66, 349.23)
+        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
+                   "audiotestsrc wave=sine freq=293.66 volume=0.06 ! audioconvert ! "
+                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
+                   "audiotestsrc wave=sine freq=349.23 volume=0.08 ! audioconvert ! mix.");
     } else {
         // Fallback - simple tone
         g_snprintf(pipeline_desc, sizeof(pipeline_desc),

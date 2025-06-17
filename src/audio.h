@@ -50,6 +50,18 @@ void audio_manager_play_long_break_start(AudioManager *audio);
 void audio_manager_play_timer_finish(AudioManager *audio);
 
 /**
+ * Plays idle pause sound (when pausing due to idle)
+ * @param audio AudioManager instance
+ */
+void audio_manager_play_idle_pause(AudioManager *audio);
+
+/**
+ * Plays idle resume sound (when resuming from idle)
+ * @param audio AudioManager instance
+ */
+void audio_manager_play_idle_resume(AudioManager *audio);
+
+/**
  * Sets master volume (0.0 to 1.0)
  * @param audio AudioManager instance
  * @param volume Volume level

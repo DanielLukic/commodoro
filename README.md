@@ -4,10 +4,10 @@ A fast, native C/GTK3 Pomodoro timer for Linux with comprehensive desktop integr
 
 ## Features
 
-- **Pomodoro Timer**: 25-minute work sessions with 5-minute breaks
+- **Pomodoro Timer**: 25-minute work sessions with 5-minute breaks (configurable)
 - **System Tray**: Live countdown with progress arc and state colors
 - **Break Overlays**: Full-screen break notifications 
-- **Auto-Start**: Detects user activity to start work sessions
+- **Auto-Start**: Detects user activity to start work sessions (optional)
 - **Dark Theme**: Modern GTK3 interface optimized for focus
 - **Audio Alerts**: Built-in chimes with enable/disable toggle
 - **Configuration**: Persistent settings in `~/.config/commodoro/`
@@ -26,7 +26,7 @@ make clean && make
 ## Usage
 
 ```bash
-./commodoro                    # Standard 25/5/15 minute intervals
+./commodoro                   # Standard 25/5/15 minute intervals
 ./commodoro 5s 3s 2 4s        # Test mode: 5s work, 3s break, 2 sessions, 4s long break
 ./commodoro --log-level DEBUG # Debug logging
 ```

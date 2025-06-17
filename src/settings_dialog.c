@@ -14,6 +14,9 @@ struct _SettingsDialog {
     // Misc tab widgets
     GtkWidget *auto_start_check;
     GtkWidget *enable_sounds_check;
+    GtkWidget *enable_idle_detection_check;
+    GtkWidget *idle_timeout_spin;
+    GtkWidget *idle_timeout_box;
     
     // Dialog buttons
     GtkWidget *restore_defaults_button;
@@ -27,6 +30,7 @@ struct _SettingsDialog {
 static void on_restore_defaults_clicked(GtkButton *button, SettingsDialog *dialog);
 static void on_cancel_clicked(GtkButton *button, SettingsDialog *dialog);
 static void on_ok_clicked(GtkButton *button, SettingsDialog *dialog);
+static void on_idle_detection_toggled(GtkToggleButton *button, SettingsDialog *dialog);
 
 SettingsDialog* settings_dialog_new(GtkWindow *parent, const Settings *settings, AudioManager *audio) {
     (void)audio; // Not used in simplified version
@@ -133,6 +137,36 @@ SettingsDialog* settings_dialog_new(GtkWindow *parent, const Settings *settings,
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dialog->enable_sounds_check), settings->enable_sounds);
     gtk_box_pack_start(GTK_BOX(behavior_box), dialog->enable_sounds_check, FALSE, FALSE, 0);
     
+    // Idle detection section
+    gtk_widget_set_margin_top(dialog->enable_sounds_check, 8);
+    dialog->enable_idle_detection_check = gtk_check_button_new_with_label("Auto-pause when idle");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dialog->enable_idle_detection_check), settings->enable_idle_detection);
+    gtk_widget_set_margin_top(dialog->enable_idle_detection_check, 8);
+    gtk_box_pack_start(GTK_BOX(behavior_box), dialog->enable_idle_detection_check, FALSE, FALSE, 0);
+    
+    // Idle timeout configuration
+    dialog->idle_timeout_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+    gtk_widget_set_margin_left(dialog->idle_timeout_box, 24);
+    gtk_widget_set_margin_top(dialog->idle_timeout_box, 5);
+    gtk_box_pack_start(GTK_BOX(behavior_box), dialog->idle_timeout_box, FALSE, FALSE, 0);
+    
+    GtkWidget *idle_timeout_label = gtk_label_new("Idle timeout:");
+    gtk_box_pack_start(GTK_BOX(dialog->idle_timeout_box), idle_timeout_label, FALSE, FALSE, 0);
+    
+    dialog->idle_timeout_spin = gtk_spin_button_new_with_range(1, 30, 1);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->idle_timeout_spin), settings->idle_timeout_minutes);
+    gtk_box_pack_start(GTK_BOX(dialog->idle_timeout_box), dialog->idle_timeout_spin, FALSE, FALSE, 0);
+    
+    GtkWidget *idle_min_label = gtk_label_new("minutes");
+    gtk_box_pack_start(GTK_BOX(dialog->idle_timeout_box), idle_min_label, FALSE, FALSE, 0);
+    
+    // Set sensitivity based on checkbox state
+    gtk_widget_set_sensitive(dialog->idle_timeout_box, settings->enable_idle_detection);
+    
+    // Connect toggle signal to enable/disable timeout spinner
+    g_signal_connect(dialog->enable_idle_detection_check, "toggled", 
+                     G_CALLBACK(on_idle_detection_toggled), dialog);
+    
     // Dialog buttons
     GtkWidget *action_area = gtk_dialog_get_action_area(GTK_DIALOG(dialog->dialog));
     
@@ -187,6 +221,8 @@ Settings* settings_dialog_get_settings(SettingsDialog *dialog) {
     
     // Behavior settings
     settings->auto_start_work_after_break = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(dialog->auto_start_check));
+    settings->enable_idle_detection = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(dialog->enable_idle_detection_check));
+    settings->idle_timeout_minutes = gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->idle_timeout_spin));
     
     // Audio settings (simplified)
     settings->enable_sounds = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(dialog->enable_sounds_check));
@@ -208,6 +244,8 @@ Settings* settings_new_default(void) {
     settings->long_break_duration = 15;
     settings->sessions_until_long_break = 4;
     settings->auto_start_work_after_break = TRUE;
+    settings->enable_idle_detection = FALSE;  // Off by default
+    settings->idle_timeout_minutes = 2;        // 2 minutes default
     settings->enable_sounds = TRUE;
     settings->sound_volume = 0.7; // Fixed reasonable volume
     settings->sound_type = g_strdup("chimes");
@@ -240,6 +278,8 @@ Settings* settings_copy(const Settings *settings) {
     copy->long_break_duration = settings->long_break_duration;
     copy->sessions_until_long_break = settings->sessions_until_long_break;
     copy->auto_start_work_after_break = settings->auto_start_work_after_break;
+    copy->enable_idle_detection = settings->enable_idle_detection;
+    copy->idle_timeout_minutes = settings->idle_timeout_minutes;
     copy->enable_sounds = settings->enable_sounds;
     copy->sound_volume = settings->sound_volume;
     copy->sound_type = g_strdup(settings->sound_type);
@@ -264,6 +304,8 @@ static void on_restore_defaults_clicked(GtkButton *button, SettingsDialog *dialo
     gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->sessions_spin), defaults->sessions_until_long_break);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dialog->auto_start_check), defaults->auto_start_work_after_break);
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dialog->enable_sounds_check), defaults->enable_sounds);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dialog->enable_idle_detection_check), defaults->enable_idle_detection);
+    gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->idle_timeout_spin), defaults->idle_timeout_minutes);
     
     settings_free(defaults);
 }
@@ -282,4 +324,9 @@ static void on_ok_clicked(GtkButton *button, SettingsDialog *dialog) {
     if (dialog->callback) {
         dialog->callback("ok", dialog->user_data);
     }
+}
+
+static void on_idle_detection_toggled(GtkToggleButton *button, SettingsDialog *dialog) {
+    gboolean active = gtk_toggle_button_get_active(button);
+    gtk_widget_set_sensitive(dialog->idle_timeout_box, active);
 }

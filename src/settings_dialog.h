@@ -27,6 +27,8 @@ typedef struct {
     
     // Behavior settings
     gboolean auto_start_work_after_break;
+    gboolean enable_idle_detection;
+    int idle_timeout_minutes;       // minutes (1-30)
     
     // Audio settings
     gboolean enable_sounds;

@@ -60,6 +60,8 @@ static gboolean on_window_delete_event(GtkWidget *widget, GdkEvent *event, gpoin
 static void quit_application(GomodaroApp *app);
 static void on_tray_auto_start_toggled(GtkCheckMenuItem *item, gpointer user_data);
 static void on_tray_config_clicked(GtkMenuItem *item, gpointer user_data);
+static void on_tray_start_clicked(GtkMenuItem *item, gpointer user_data);
+static void on_tray_reset_clicked(GtkMenuItem *item, gpointer user_data);
 static gboolean on_input_activity_detected(gpointer user_data);
 static gboolean delayed_window_present(gpointer user_data);
 
@@ -576,6 +578,35 @@ static void on_tray_status_action(const char *action, gpointer user_data) {
         // Right-click - show context menu
         GtkWidget *menu = gtk_menu_new();
         
+        // Timer control items
+        TimerState state = timer_get_state(app->timer);
+        
+        // Start/Pause/Resume item
+        const char *control_label;
+        if (state == TIMER_STATE_IDLE) {
+            control_label = "Start";
+        } else if (state == TIMER_STATE_PAUSED) {
+            control_label = "Resume";
+        } else {
+            control_label = "Pause";
+        }
+        
+        GtkWidget *control_item = gtk_menu_item_new_with_label(control_label);
+        g_signal_connect(control_item, "activate", 
+                        G_CALLBACK(on_tray_start_clicked), app);
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), control_item);
+        
+        // Reset item
+        GtkWidget *reset_item = gtk_menu_item_new_with_label("Reset");
+        gtk_widget_set_sensitive(reset_item, state != TIMER_STATE_IDLE);
+        g_signal_connect(reset_item, "activate",
+                        G_CALLBACK(on_tray_reset_clicked), app);
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), reset_item);
+        
+        // Separator
+        GtkWidget *separator1 = gtk_separator_menu_item_new();
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), separator1);
+        
         // Config menu item
         GtkWidget *config_item = gtk_menu_item_new_with_label("Config");
         g_signal_connect(config_item, "activate", 
@@ -764,6 +795,28 @@ static void on_tray_config_clicked(GtkMenuItem *item, gpointer user_data) {
     
     // Open settings dialog (same as clicking settings button in main window)
     on_settings_clicked(NULL, app);
+}
+
+static void on_tray_start_clicked(GtkMenuItem *item, gpointer user_data) {
+    (void)item; // Suppress unused parameter warning
+    GomodaroApp *app = (GomodaroApp *)user_data;
+    
+    TimerState state = timer_get_state(app->timer);
+    
+    // Single button logic: Start/Pause/Resume
+    if (state == TIMER_STATE_IDLE || state == TIMER_STATE_PAUSED) {
+        timer_start(app->timer);
+    } else if (state == TIMER_STATE_WORK || state == TIMER_STATE_SHORT_BREAK || 
+               state == TIMER_STATE_LONG_BREAK) {
+        timer_pause(app->timer);
+    }
+}
+
+static void on_tray_reset_clicked(GtkMenuItem *item, gpointer user_data) {
+    (void)item; // Suppress unused parameter warning
+    GomodaroApp *app = (GomodaroApp *)user_data;
+    
+    timer_reset(app->timer);
 }
 
 static gboolean on_input_activity_detected(gpointer user_data) {

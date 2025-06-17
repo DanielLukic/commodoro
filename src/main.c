@@ -394,7 +394,10 @@ static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user
             
             // Start input monitoring if auto-start is enabled
             if (app->settings && app->settings->auto_start_work_after_break) {
+                g_print("Timer transitioned to IDLE, starting input monitor for auto-start\n");
                 input_monitor_start(app->input_monitor);
+            } else {
+                g_print("Timer transitioned to IDLE, but auto-start is disabled\n");
             }
             break;
             
@@ -822,13 +825,22 @@ static void on_tray_reset_clicked(GtkMenuItem *item, gpointer user_data) {
 static gboolean on_input_activity_detected(gpointer user_data) {
     GomodaroApp *app = (GomodaroApp *)user_data;
     
-    if (!app || !app->timer) return G_SOURCE_REMOVE;
+    g_print("on_input_activity_detected called!\n");
+    
+    if (!app || !app->timer) {
+        g_print("on_input_activity_detected: app or timer is NULL\n");
+        return G_SOURCE_REMOVE;
+    }
     
     // Only auto-start if timer is in IDLE state and auto-start is enabled
     TimerState current_state = timer_get_state(app->timer);
+    g_print("on_input_activity_detected: current_state=%d, auto_start=%d\n", 
+            current_state, app->settings ? app->settings->auto_start_work_after_break : 0);
+    
     if (current_state == TIMER_STATE_IDLE && 
         app->settings && app->settings->auto_start_work_after_break) {
         
+        g_print("Auto-starting work session from input activity\n");
         
         // Ensure input monitoring is stopped to prevent multiple triggers
         if (app->input_monitor) {

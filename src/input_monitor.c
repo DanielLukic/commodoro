@@ -67,14 +67,23 @@ void input_monitor_set_window(InputMonitor *monitor, GtkWidget *window) {
 }
 
 void input_monitor_start(InputMonitor *monitor) {
-    if (!monitor || monitor->is_active) return;
+    if (!monitor) {
+        g_print("Input monitor: start called with NULL monitor\n");
+        return;
+    }
     
+    if (monitor->is_active) {
+        g_print("Input monitor: already active, not starting again\n");
+        return;
+    }
+    
+    g_print("Input monitor: starting monitoring\n");
     monitor->is_active = TRUE;
     
     if (monitor->use_global_monitoring) {
         // Use X11 global input monitoring
         if (setup_x11_monitoring(monitor)) {
-            g_print("Global input monitoring started\n");
+            g_print("Global input monitoring started successfully\n");
         } else {
             // Fallback to window-based monitoring
             g_print("Failed to setup global monitoring, using window-based fallback\n");
@@ -131,7 +140,7 @@ static gboolean on_window_event(GtkWidget *widget, GdkEvent *event, gpointer use
         
         // Trigger callback using g_idle_add 
         if (monitor->callback) {
-            g_idle_add(monitor->callback, monitor->user_data);
+            g_idle_add(trigger_callback_idle, monitor);
         }
         
         // Disconnect signal handler
@@ -151,7 +160,9 @@ static gboolean on_window_event(GtkWidget *widget, GdkEvent *event, gpointer use
 static gboolean trigger_callback_idle(gpointer user_data) {
     InputMonitor *monitor = (InputMonitor*)user_data;
     
-    if (monitor->callback && monitor->is_active) {
+    g_print("Input monitor: trigger_callback_idle called, is_active=%d\n", monitor->is_active);
+    
+    if (monitor->callback) {
         monitor->callback(monitor->user_data);
     }
     
@@ -225,6 +236,7 @@ static void* x11_monitor_thread(void *data) {
                         }
                         
                         // Activity detected - trigger callback in main thread
+                        g_print("X11 input monitor: activity detected! Triggering callback\n");
                         g_idle_add(trigger_callback_idle, monitor);
                         monitor->x11_thread_running = FALSE; // Stop monitoring
                         break;

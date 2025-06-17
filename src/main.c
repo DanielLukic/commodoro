@@ -272,10 +272,13 @@ static void activate(GtkApplication *gtk_app, gpointer user_data) {
     gtk_style_context_add_class(gtk_widget_get_style_context(app->start_button), "control-button");
     gtk_style_context_add_class(gtk_widget_get_style_context(app->pause_button), "control-button");
     gtk_style_context_add_class(gtk_widget_get_style_context(app->reset_button), "control-button");
+    
+    // Hide pause button - using single button logic
+    gtk_widget_hide(app->pause_button);
     gtk_style_context_add_class(gtk_widget_get_style_context(app->settings_button), "settings-button");
     
     gtk_box_pack_start(GTK_BOX(button_box), app->start_button, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(button_box), app->pause_button, FALSE, FALSE, 0);
+    // Pause button removed - using single button logic
     gtk_box_pack_start(GTK_BOX(button_box), app->reset_button, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(button_box), app->settings_button, FALSE, FALSE, 0);
     
@@ -355,7 +358,16 @@ static void activate(GtkApplication *gtk_app, gpointer user_data) {
 
 static void on_start_clicked(GtkButton *button, GomodaroApp *app) {
     (void)button; // Suppress unused parameter warning
-    timer_start(app->timer);
+    
+    TimerState state = timer_get_state(app->timer);
+    
+    // Single button logic: Start/Pause/Resume
+    if (state == TIMER_STATE_IDLE || state == TIMER_STATE_PAUSED) {
+        timer_start(app->timer);
+    } else if (state == TIMER_STATE_WORK || state == TIMER_STATE_SHORT_BREAK || 
+               state == TIMER_STATE_LONG_BREAK) {
+        timer_pause(app->timer);
+    }
 }
 
 static void on_pause_clicked(GtkButton *button, GomodaroApp *app) {
@@ -387,7 +399,6 @@ static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user
         case TIMER_STATE_IDLE:
             gtk_button_set_label(GTK_BUTTON(app->start_button), "Start");
             gtk_widget_set_sensitive(app->start_button, TRUE);
-            gtk_widget_set_sensitive(app->pause_button, FALSE);
             gtk_widget_set_sensitive(app->reset_button, TRUE);
             // Hide break overlay when returning to idle
             break_overlay_hide(app->break_overlay);
@@ -402,9 +413,8 @@ static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user
             break;
             
         case TIMER_STATE_WORK:
-            gtk_button_set_label(GTK_BUTTON(app->start_button), "Start");
-            gtk_widget_set_sensitive(app->start_button, FALSE);
-            gtk_widget_set_sensitive(app->pause_button, TRUE);
+            gtk_button_set_label(GTK_BUTTON(app->start_button), "Pause");
+            gtk_widget_set_sensitive(app->start_button, TRUE);
             gtk_widget_set_sensitive(app->reset_button, TRUE);
             // Play work start sound
             audio_manager_play_work_start(app->audio);
@@ -415,9 +425,8 @@ static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user
             break;
             
         case TIMER_STATE_SHORT_BREAK:
-            gtk_button_set_label(GTK_BUTTON(app->start_button), "Start");
-            gtk_widget_set_sensitive(app->start_button, FALSE);
-            gtk_widget_set_sensitive(app->pause_button, TRUE);
+            gtk_button_set_label(GTK_BUTTON(app->start_button), "Pause");
+            gtk_widget_set_sensitive(app->start_button, TRUE);
             gtk_widget_set_sensitive(app->reset_button, TRUE);
             // Play break start sound
             audio_manager_play_break_start(app->audio);
@@ -428,9 +437,8 @@ static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user
             break;
             
         case TIMER_STATE_LONG_BREAK:
-            gtk_button_set_label(GTK_BUTTON(app->start_button), "Start");
-            gtk_widget_set_sensitive(app->start_button, FALSE);
-            gtk_widget_set_sensitive(app->pause_button, TRUE);
+            gtk_button_set_label(GTK_BUTTON(app->start_button), "Pause");
+            gtk_widget_set_sensitive(app->start_button, TRUE);
             gtk_widget_set_sensitive(app->reset_button, TRUE);
             // Play long break start sound
             audio_manager_play_long_break_start(app->audio);
@@ -442,7 +450,6 @@ static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user
         case TIMER_STATE_PAUSED:
             gtk_button_set_label(GTK_BUTTON(app->start_button), "Resume");
             gtk_widget_set_sensitive(app->start_button, TRUE);
-            gtk_widget_set_sensitive(app->pause_button, FALSE);
             gtk_widget_set_sensitive(app->reset_button, TRUE);
             break;
     }

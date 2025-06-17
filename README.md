@@ -8,15 +8,16 @@ A fast, native C/GTK3 Pomodoro timer for Linux with comprehensive desktop integr
 - **System Tray**: Live countdown with progress arc and state colors
 - **Break Overlays**: Full-screen break notifications 
 - **Auto-Start**: Detects user activity to start work sessions (optional)
+- **Idle Detection**: Auto-pause when idle, auto-resume on activity (optional)
 - **Dark Theme**: Modern GTK3 interface optimized for focus
-- **Audio Alerts**: Built-in chimes with enable/disable toggle
+- **Audio Alerts**: Built-in chimes for all timer events
 - **Configuration**: Persistent settings in `~/.config/commodoro/`
 
 ## Quick Start
 
 ```bash
 # Install dependencies (Ubuntu/Debian)
-sudo apt install libgtk-3-dev libgstreamer1.0-dev libxtst-dev
+sudo apt install libgtk-3-dev libgstreamer1.0-dev libxtst-dev libxss-dev
 
 # Build and run
 make clean && make
@@ -49,21 +50,23 @@ make clean && make
 
 ## Audio Features
 
-### Current (v1)
-- ✅ Enable/disable sounds
-- ✅ Built-in chimes (different frequencies per event)
-- ✅ Fixed volume (30%)
+- **Built-in Chimes**: Different tones for each timer event
+- **Event Sounds**: Work start, break start, session complete, timer finish
+- **Idle Notification**: Gentle chime when pausing due to idle
+- **Enable/Disable**: Global sound toggle in settings
+- **Volume**: Fixed at 70% for optimal clarity
 
-### Planned (v2)
-- Volume control slider with real-time testing
-- Custom sound file support (.wav, .mp3, .ogg)
-- Per-event sound customization (work start, break start, session complete)
-- Enhanced settings dialog with dedicated Sounds tab
-- Sound file validation and preview
+## Settings
+
+- **Timer Durations**: Work (1-120 min), Short Break (1-60 min), Long Break (5-120 min)
+- **Sessions**: Number of work sessions before long break (2-10)
+- **Auto-Start Work**: Begin work automatically when activity detected after break
+- **Auto-Pause on Idle**: Pause timer when idle for timeout period (1-30 min)
+- **Sound Alerts**: Enable/disable audio notifications
 
 ## Architecture
 
-**Core Components**: Timer state machine, GTK3 GUI, system tray integration, GStreamer audio, input monitoring, persistent configuration
+**Core Components**: Timer state machine, GTK3 GUI, system tray integration, GStreamer audio, input monitoring, XScreenSaver idle detection, persistent configuration
 
 **Clean C99**: Modular design with proper memory management and error handling
 

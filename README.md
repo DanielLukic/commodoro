@@ -2,6 +2,17 @@
 
 A fast, native C/GTK3 Pomodoro timer for Linux with comprehensive desktop integration.
 
+## Screenshots
+
+<p align="center">
+  <img src="doc/commodoro_main.png" width="400" alt="Commodoro Main Window">
+  <img src="doc/commodoro_tray_icon.png" width="80" alt="System Tray Integration">
+</p>
+<p align="center">
+  <img src="doc/commodoro_break.png" width="400" alt="Break Overlay">
+  <img src="doc/commodoro_config.png" width="400" alt="Settings Dialog">
+</p>
+
 ## Features
 
 - **Pomodoro Timer**: 25-minute work sessions with 5-minute breaks (configurable)

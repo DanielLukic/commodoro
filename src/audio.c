@@ -1,101 +1,78 @@
+#define _GNU_SOURCE
 #include "audio.h"
-#include <gst/gst.h>
 #include <glib.h>
+#include <math.h>
+#include <alsa/asoundlib.h>
+#include <pthread.h>
+
+#define SAMPLE_RATE 44100
+#define CHANNELS 1
+#define BUFFER_SIZE 4096
+
+typedef struct {
+    short *buffer;
+    int samples;
+    double volume;
+} SoundData;
 
 struct _AudioManager {
-    GstElement *playbin;
     double volume;
     gboolean enabled;
-    gboolean gst_initialized;
 };
 
-static gboolean on_bus_message(GstBus *bus, GstMessage *message, AudioManager *audio);
-static void play_sound_file(AudioManager *audio, const char *sound_type);
-static gboolean stop_pipeline_timeout(gpointer user_data);
+static void* play_sound_thread(void *data);
+static void play_sound_async(AudioManager *audio, const char *sound_type);
+static SoundData* generate_chime(const char *sound_type, double volume);
+static void free_sound_data(SoundData *data);
 
 AudioManager* audio_manager_new(void) {
     AudioManager *audio = g_malloc0(sizeof(AudioManager));
     
-    // Initialize GStreamer
-    GError *error = NULL;
-    if (!gst_init_check(NULL, NULL, &error)) {
-        g_warning("Failed to initialize GStreamer: %s", error ? error->message : "Unknown error");
-        if (error) g_error_free(error);
-        audio->gst_initialized = FALSE;
-    } else {
-        audio->gst_initialized = TRUE;
-    }
-    
-    // Create playbin element
-    if (audio->gst_initialized) {
-        audio->playbin = gst_element_factory_make("playbin", "audio-player");
-        if (!audio->playbin) {
-            g_warning("Failed to create GStreamer playbin element");
-            audio->gst_initialized = FALSE;
-        } else {
-            // Set up bus for handling messages
-            GstBus *bus = gst_element_get_bus(audio->playbin);
-            gst_bus_add_watch(bus, (GstBusFunc)on_bus_message, audio);
-            gst_object_unref(bus);
-        }
-    }
-    
     // Set default values
     audio->volume = 0.7;  // 70% volume
     audio->enabled = TRUE;
-    
-    // Set initial volume
-    if (audio->playbin) {
-        g_object_set(audio->playbin, "volume", audio->volume, NULL);
-    }
     
     return audio;
 }
 
 void audio_manager_free(AudioManager *audio) {
     if (!audio) return;
-    
-    if (audio->playbin) {
-        gst_element_set_state(audio->playbin, GST_STATE_NULL);
-        gst_object_unref(audio->playbin);
-    }
-    
     g_free(audio);
 }
 
 void audio_manager_play_work_start(AudioManager *audio) {
     if (!audio || !audio->enabled) return;
-    play_sound_file(audio, "work_start");
+    play_sound_async(audio, "work_start");
 }
 
 void audio_manager_play_break_start(AudioManager *audio) {
     if (!audio || !audio->enabled) return;
-    play_sound_file(audio, "break_start");
+    play_sound_async(audio, "break_start");
 }
 
 void audio_manager_play_session_complete(AudioManager *audio) {
     if (!audio || !audio->enabled) return;
-    play_sound_file(audio, "session_complete");
+    play_sound_async(audio, "session_complete");
 }
 
 void audio_manager_play_long_break_start(AudioManager *audio) {
     if (!audio || !audio->enabled) return;
-    play_sound_file(audio, "long_break_start");
+    play_sound_async(audio, "long_break_start");
 }
 
 void audio_manager_play_timer_finish(AudioManager *audio) {
     if (!audio || !audio->enabled) return;
-    play_sound_file(audio, "timer_finish");
+    play_sound_async(audio, "timer_finish");
 }
 
 void audio_manager_play_idle_pause(AudioManager *audio) {
     if (!audio || !audio->enabled) return;
-    play_sound_file(audio, "idle_pause");
+    play_sound_async(audio, "idle_pause");
 }
 
 void audio_manager_play_idle_resume(AudioManager *audio) {
     if (!audio || !audio->enabled) return;
-    play_sound_file(audio, "idle_resume");
+    play_sound_async(audio, "idle_resume");
 }
 
 void audio_manager_set_volume(AudioManager *audio, double volume) {
@@ -108,10 +85,6 @@ void audio_manager_set_volume(AudioManager *audio, double volume) {
     g_print("Setting audio volume to %.2f (%.0f%%)\n", volume, volume * 100);
     
     audio->volume = volume;
-    
-    if (audio->playbin) {
-        g_object_set(audio->playbin, "volume", volume, NULL);
-    }
 }
 
 void audio_manager_set_enabled(AudioManager *audio, gboolean enabled) {
@@ -119,125 +92,235 @@ void audio_manager_set_enabled(AudioManager *audio, gboolean enabled) {
     audio->enabled = enabled;
 }
 
-static gboolean on_bus_message(GstBus *bus, GstMessage *message, AudioManager *audio) {
-    (void)bus;    // Suppress unused parameter warning
-    (void)audio;  // Suppress unused parameter warning
+static void* play_sound_thread(void *data) {
+    SoundData *sound = (SoundData*)data;
     
-    switch (GST_MESSAGE_TYPE(message)) {
-        case GST_MESSAGE_ERROR: {
-            GError *error;
-            gchar *debug;
-            gst_message_parse_error(message, &error, &debug);
-            g_warning("Audio playback error: %s", error->message);
-            g_error_free(error);
-            g_free(debug);
+    snd_pcm_t *handle;
+    int err;
+    
+    // Open PCM device - try different devices in order of preference
+    const char* devices[] = {"pipewire", "plughw:0,0", "default", "dmix"};
+    int device_found = 0;
+    
+    for (int i = 0; i < 4; i++) {
+        if ((err = snd_pcm_open(&handle, devices[i], SND_PCM_STREAM_PLAYBACK, 0)) >= 0) {
+            device_found = 1;
             break;
         }
-        case GST_MESSAGE_EOS:
-            // End of stream - stop playback
-            if (audio->playbin) {
-                gst_element_set_state(audio->playbin, GST_STATE_NULL);
-            }
-            break;
-        default:
-            break;
     }
     
-    return TRUE;
+    if (!device_found) {
+        g_warning("Cannot open any audio device");
+        free_sound_data(sound);
+        return NULL;
+    }
+    
+    // Set parameters
+    snd_pcm_hw_params_t *params;
+    snd_pcm_hw_params_alloca(&params);
+    
+    if ((err = snd_pcm_hw_params_any(handle, params)) < 0) {
+        g_warning("Cannot initialize hardware parameters: %s", snd_strerror(err));
+        snd_pcm_close(handle);
+        free_sound_data(sound);
+        return NULL;
+    }
+    
+    // Set access type
+    if ((err = snd_pcm_hw_params_set_access(handle, params, SND_PCM_ACCESS_RW_INTERLEAVED)) < 0) {
+        g_warning("Cannot set access type: %s", snd_strerror(err));
+        snd_pcm_close(handle);
+        free_sound_data(sound);
+        return NULL;
+    }
+    
+    // Set sample format to S16_LE which is more widely supported
+    if ((err = snd_pcm_hw_params_set_format(handle, params, SND_PCM_FORMAT_S16_LE)) < 0) {
+        g_warning("Cannot set sample format: %s", snd_strerror(err));
+        snd_pcm_close(handle);
+        free_sound_data(sound);
+        return NULL;
+    }
+    
+    // Set channels
+    if ((err = snd_pcm_hw_params_set_channels(handle, params, CHANNELS)) < 0) {
+        g_warning("Cannot set channel count: %s", snd_strerror(err));
+        snd_pcm_close(handle);
+        free_sound_data(sound);
+        return NULL;
+    }
+    
+    // Set sample rate
+    unsigned int rate = SAMPLE_RATE;
+    if ((err = snd_pcm_hw_params_set_rate_near(handle, params, &rate, 0)) < 0) {
+        g_warning("Cannot set sample rate: %s", snd_strerror(err));
+        snd_pcm_close(handle);
+        free_sound_data(sound);
+        return NULL;
+    }
+    
+    if ((err = snd_pcm_hw_params(handle, params)) < 0) {
+        g_warning("Cannot set audio parameters: %s", snd_strerror(err));
+        snd_pcm_close(handle);
+        free_sound_data(sound);
+        return NULL;
+    }
+    
+    // Prepare the PCM for playback
+    if ((err = snd_pcm_prepare(handle)) < 0) {
+        g_warning("Cannot prepare audio interface: %s", snd_strerror(err));
+        snd_pcm_close(handle);
+        free_sound_data(sound);
+        return NULL;
+    }
+    
+    // Play the sound
+    int remaining = sound->samples;
+    short *ptr = sound->buffer;
+    
+    while (remaining > 0) {
+        int frames = remaining > BUFFER_SIZE ? BUFFER_SIZE : remaining;
+        err = snd_pcm_writei(handle, ptr, frames);
+        
+        if (err == -EPIPE) {
+            // Underrun occurred
+            snd_pcm_prepare(handle);
+        } else if (err < 0) {
+            g_warning("Write error: %s", snd_strerror(err));
+            break;
+        } else {
+            ptr += err * CHANNELS;
+            remaining -= err;
+        }
+    }
+    
+    // Drain and close
+    snd_pcm_drain(handle);
+    snd_pcm_close(handle);
+    
+    free_sound_data(sound);
+    return NULL;
 }
 
-static void play_sound_file(AudioManager *audio, const char *sound_type) {
-    if (!audio || !audio->gst_initialized || !audio->playbin) {
-        // Fallback to system beep if GStreamer is not available
-        g_print("Audio notification: %s\n", sound_type);
+static void play_sound_async(AudioManager *audio, const char *sound_type) {
+    if (!audio) return;
+    
+    // Generate the sound data
+    SoundData *sound = generate_chime(sound_type, audio->volume);
+    if (!sound) {
+        g_warning("Failed to generate sound for: %s", sound_type);
         return;
     }
     
-    // Stop any currently playing sound
-    gst_element_set_state(audio->playbin, GST_STATE_NULL);
+    // Create detached thread to play sound asynchronously
+    pthread_t thread;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     
-    // Generate different tones based on sound type to match Python's chime system
-    char pipeline_desc[512];
-    
-    // Create multi-tone chimes based on Python's chord system
-    if (g_strcmp0(sound_type, "work_start") == 0) {
-        // Work start - Uplifting major chord (C4, E4, G4: 261.63, 329.63, 392.00)
-        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
-                   "audiotestsrc wave=sine freq=261.63 volume=0.1 ! audioconvert ! "
-                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
-                   "audiotestsrc wave=sine freq=329.63 volume=0.1 ! audioconvert ! mix. "
-                   "audiotestsrc wave=sine freq=392.00 volume=0.1 ! audioconvert ! mix.");
-    } else if (g_strcmp0(sound_type, "break_start") == 0) {
-        // Break start - Relaxing minor chord (A3, C4, E4: 220.00, 261.63, 329.63)
-        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
-                   "audiotestsrc wave=sine freq=220.00 volume=0.1 ! audioconvert ! "
-                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
-                   "audiotestsrc wave=sine freq=261.63 volume=0.1 ! audioconvert ! mix. "
-                   "audiotestsrc wave=sine freq=329.63 volume=0.1 ! audioconvert ! mix.");
-    } else if (g_strcmp0(sound_type, "session_complete") == 0) {
-        // Session complete - Achievement sound (C4, G4, C5: 261.63, 392.00, 523.25)
-        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
-                   "audiotestsrc wave=sine freq=261.63 volume=0.1 ! audioconvert ! "
-                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
-                   "audiotestsrc wave=sine freq=392.00 volume=0.1 ! audioconvert ! mix. "
-                   "audiotestsrc wave=sine freq=523.25 volume=0.1 ! audioconvert ! mix.");
-    } else if (g_strcmp0(sound_type, "long_break_start") == 0) {
-        // Long break - Same as break but slightly different volume mix
-        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
-                   "audiotestsrc wave=sine freq=220.00 volume=0.12 ! audioconvert ! "
-                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
-                   "audiotestsrc wave=sine freq=261.63 volume=0.1 ! audioconvert ! mix. "
-                   "audiotestsrc wave=sine freq=329.63 volume=0.08 ! audioconvert ! mix.");
-    } else if (g_strcmp0(sound_type, "timer_finish") == 0) {
-        // Timer finish - Gentle notification (A4, A5: 440.00, 880.00)
-        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
-                   "audiotestsrc wave=sine freq=440.00 volume=0.15 ! audioconvert ! "
-                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
-                   "audiotestsrc wave=sine freq=880.00 volume=0.1 ! audioconvert ! mix.");
-    } else if (g_strcmp0(sound_type, "idle_pause") == 0) {
-        // Idle pause - Soft descending tone (F4, D4: 349.23, 293.66)
-        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
-                   "audiotestsrc wave=sine freq=349.23 volume=0.08 ! audioconvert ! "
-                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
-                   "audiotestsrc wave=sine freq=293.66 volume=0.06 ! audioconvert ! mix.");
-    } else if (g_strcmp0(sound_type, "idle_resume") == 0) {
-        // Idle resume - Soft ascending tone (D4, F4: 293.66, 349.23)
-        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
-                   "audiotestsrc wave=sine freq=293.66 volume=0.06 ! audioconvert ! "
-                   "audiomixer name=mix ! audioconvert ! autoaudiosink "
-                   "audiotestsrc wave=sine freq=349.23 volume=0.08 ! audioconvert ! mix.");
-    } else {
-        // Fallback - simple tone
-        g_snprintf(pipeline_desc, sizeof(pipeline_desc),
-                   "audiotestsrc wave=sine freq=440 volume=0.2 ! audioconvert ! autoaudiosink");
+    if (pthread_create(&thread, &attr, play_sound_thread, sound) != 0) {
+        g_warning("Failed to create audio thread");
+        free_sound_data(sound);
     }
     
-    
-    // Create a temporary pipeline for the tone
-    GError *error = NULL;
-    GstElement *pipeline = gst_parse_launch(pipeline_desc, &error);
-    
-    if (pipeline) {
-        // Play for 0.5 seconds
-        gst_element_set_state(pipeline, GST_STATE_PLAYING);
-        
-        // Set a timeout to stop the sound
-        g_timeout_add(500, stop_pipeline_timeout, 
-                     g_object_ref_sink(pipeline));
-    } else {
-        g_warning("Failed to create audio pipeline: %s", 
-                 error ? error->message : "Unknown error");
-        if (error) g_error_free(error);
-    }
+    pthread_attr_destroy(&attr);
 }
 
-static gboolean stop_pipeline_timeout(gpointer user_data) {
-    GstElement *pipeline = GST_ELEMENT(user_data);
+static SoundData* generate_chime(const char *sound_type, double volume) {
+    SoundData *sound = g_malloc(sizeof(SoundData));
+    sound->volume = volume;
     
-    if (pipeline) {
-        gst_element_set_state(pipeline, GST_STATE_NULL);
-        g_object_unref(pipeline);
+    // Duration and envelope parameters
+    float duration = 0.5f;  // 500ms
+    sound->samples = (int)(duration * SAMPLE_RATE);
+    sound->buffer = g_malloc(sound->samples * sizeof(short));
+    
+    // ADSR envelope parameters
+    float attack = 0.01f;   // 10ms
+    float decay = 0.05f;    // 50ms  
+    float sustain = 0.3f;   // 30% level
+    float release = 0.2f;   // 200ms
+    
+    int attack_samples = (int)(attack * SAMPLE_RATE);
+    int decay_samples = (int)(decay * SAMPLE_RATE);
+    int release_samples = (int)(release * SAMPLE_RATE);
+    
+    // Frequency combinations for different sounds
+    float freq1 = 440.0f, freq2 = 0.0f, freq3 = 0.0f;
+    float amp1 = 1.0f, amp2 = 0.0f, amp3 = 0.0f;
+    
+    if (g_strcmp0(sound_type, "work_start") == 0) {
+        // Major chord C4-E4-G4
+        freq1 = 261.63f; amp1 = 1.0f;
+        freq2 = 329.63f; amp2 = 0.8f;
+        freq3 = 392.00f; amp3 = 0.6f;
+    } else if (g_strcmp0(sound_type, "break_start") == 0) {
+        // Minor chord A3-C4-E4
+        freq1 = 220.00f; amp1 = 1.0f;
+        freq2 = 261.63f; amp2 = 0.8f;
+        freq3 = 329.63f; amp3 = 0.6f;
+    } else if (g_strcmp0(sound_type, "session_complete") == 0) {
+        // Perfect fifth C4-G4-C5
+        freq1 = 261.63f; amp1 = 1.0f;
+        freq2 = 392.00f; amp2 = 0.8f;
+        freq3 = 523.25f; amp3 = 0.5f;
+    } else if (g_strcmp0(sound_type, "long_break_start") == 0) {
+        // Same as break with different mix
+        freq1 = 220.00f; amp1 = 1.2f;
+        freq2 = 261.63f; amp2 = 1.0f;
+        freq3 = 329.63f; amp3 = 0.8f;
+    } else if (g_strcmp0(sound_type, "timer_finish") == 0) {
+        // Octave A4-A5
+        freq1 = 440.00f; amp1 = 1.0f;
+        freq2 = 880.00f; amp2 = 0.5f;
+    } else if (g_strcmp0(sound_type, "idle_pause") == 0) {
+        // Descending F4-D4
+        freq1 = 349.23f; amp1 = 0.8f;
+        freq2 = 293.66f; amp2 = 0.6f;
+    } else if (g_strcmp0(sound_type, "idle_resume") == 0) {
+        // Ascending D4-F4
+        freq1 = 293.66f; amp1 = 0.6f;
+        freq2 = 349.23f; amp2 = 0.8f;
     }
     
-    return FALSE; // Remove timeout
+    // Generate the waveform
+    for (int i = 0; i < sound->samples; i++) {
+        float t = (float)i / SAMPLE_RATE;
+        
+        // Calculate envelope
+        float envelope = 0.0f;
+        if (i < attack_samples) {
+            envelope = (float)i / attack_samples;
+        } else if (i < attack_samples + decay_samples) {
+            float decay_progress = (float)(i - attack_samples) / decay_samples;
+            envelope = 1.0f - decay_progress * (1.0f - sustain);
+        } else if (i < sound->samples - release_samples) {
+            envelope = sustain;
+        } else {
+            float release_progress = (float)(i - (sound->samples - release_samples)) / release_samples;
+            envelope = sustain * (1.0f - release_progress);
+        }
+        
+        // Generate the multi-tone waveform
+        float sample = 0.0f;
+        sample += amp1 * sinf(2.0f * M_PI * freq1 * t);
+        if (freq2 > 0) sample += amp2 * sinf(2.0f * M_PI * freq2 * t);
+        if (freq3 > 0) sample += amp3 * sinf(2.0f * M_PI * freq3 * t);
+        
+        // Normalize and apply envelope
+        float total_amp = amp1 + (freq2 > 0 ? amp2 : 0) + (freq3 > 0 ? amp3 : 0);
+        sample = (sample / total_amp) * envelope * volume * 0.3f;  // Scale down to prevent clipping
+        
+        // Convert to 16-bit signed integer
+        sound->buffer[i] = (short)(sample * 32767.0f);
+    }
+    
+    return sound;
+}
+
+static void free_sound_data(SoundData *data) {
+    if (data) {
+        g_free(data->buffer);
+        g_free(data);
+    }
 }

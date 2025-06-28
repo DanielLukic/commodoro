@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS_COMMON = -Wall -Wextra -std=c99
-CFLAGS_GTK3 = $(CFLAGS_COMMON) $(shell pkg-config --cflags gtk+-3.0 gstreamer-1.0)
-LIBS_GTK3 = $(shell pkg-config --libs gtk+-3.0 gstreamer-1.0) -lX11 -lXtst -lXi -lXss -pthread
+CFLAGS_GTK3 = $(CFLAGS_COMMON) $(shell pkg-config --cflags gtk+-3.0)
+LIBS_GTK3 = $(shell pkg-config --libs gtk+-3.0) -lX11 -lXtst -lXi -lXss -lasound -lm -pthread
 TARGET = commodoro
 BUILDDIR = build
 SOURCES = src/main.c src/tray_icon.c src/timer.c src/tray_status_icon.c src/audio.c src/settings_dialog.c src/break_overlay.c src/config.c src/input_monitor.c

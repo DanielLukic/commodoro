@@ -729,11 +729,18 @@ static void on_break_overlay_action(const char *action, gpointer user_data) {
         // Add 5 minutes (300 seconds) to the current break
         timer_extend_break(app->timer, 300);
     } else if (g_strcmp0(action, "pause") == 0) {
-        // Pause/resume the break timer
-        timer_pause(app->timer);
-        TimerState state = timer_get_state(app->timer);
-        if (state == TIMER_STATE_PAUSED) {
+        TimerState current_state = timer_get_state(app->timer);
+        
+        if (current_state == TIMER_STATE_PAUSED) {
+            // Resume the timer
+            timer_start(app->timer);
+            break_overlay_update_pause_button(app->break_overlay, "Pause");
+            // The timer state callback will update the overlay type back to break type
+        } else {
+            // Pause the timer
+            timer_pause(app->timer);
             break_overlay_update_type(app->break_overlay, "Paused");
+            break_overlay_update_pause_button(app->break_overlay, "Resume");
         }
     } else if (g_strcmp0(action, "dismiss") == 0) {
         // Just hide the overlay (ESC key)

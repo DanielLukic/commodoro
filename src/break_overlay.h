@@ -72,6 +72,13 @@ void break_overlay_update_type(BreakOverlay *overlay, const char *break_type);
  */
 gboolean break_overlay_is_visible(BreakOverlay *overlay);
 
+/**
+ * Updates the pause button label
+ * @param overlay BreakOverlay instance
+ * @param label New label text ("Pause" or "Resume")
+ */
+void break_overlay_update_pause_button(BreakOverlay *overlay, const char *label);
+
 G_END_DECLS
 
 #endif // BREAK_OVERLAY_H

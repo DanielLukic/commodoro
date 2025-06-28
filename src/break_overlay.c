@@ -218,6 +218,12 @@ gboolean break_overlay_is_visible(BreakOverlay *overlay) {
     return gtk_widget_get_visible(overlay->window);
 }
 
+void break_overlay_update_pause_button(BreakOverlay *overlay, const char *label) {
+    if (!overlay || !label) return;
+    
+    gtk_button_set_label(GTK_BUTTON(overlay->pause_button), label);
+}
+
 // Event handlers
 static void on_skip_clicked(GtkButton *button, BreakOverlay *overlay) {
     (void)button; // Suppress unused parameter warning

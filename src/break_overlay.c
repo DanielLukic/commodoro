@@ -78,24 +78,24 @@ BreakOverlay* break_overlay_new(void) {
     gtk_box_pack_start(GTK_BOX(overlay->main_box), overlay->button_box, FALSE, FALSE, 0);
     
     // Skip Break button
-    overlay->skip_button = gtk_button_new_with_label("Skip Break");
+    overlay->skip_button = gtk_button_new_with_label("Skip Break (S)");
     gtk_style_context_add_class(gtk_widget_get_style_context(overlay->skip_button), "break-button");
     gtk_style_context_add_class(gtk_widget_get_style_context(overlay->skip_button), "break-button-destructive");
-    gtk_widget_set_size_request(overlay->skip_button, 120, 40);
+    gtk_widget_set_size_request(overlay->skip_button, 140, 40);
     gtk_box_pack_start(GTK_BOX(overlay->button_box), overlay->skip_button, FALSE, FALSE, 0);
     
     // Extend Break button
-    overlay->extend_button = gtk_button_new_with_label("Extend Break");
+    overlay->extend_button = gtk_button_new_with_label("Extend Break (E)");
     gtk_style_context_add_class(gtk_widget_get_style_context(overlay->extend_button), "break-button");
     gtk_style_context_add_class(gtk_widget_get_style_context(overlay->extend_button), "break-button-normal");
-    gtk_widget_set_size_request(overlay->extend_button, 120, 40);
+    gtk_widget_set_size_request(overlay->extend_button, 140, 40);
     gtk_box_pack_start(GTK_BOX(overlay->button_box), overlay->extend_button, FALSE, FALSE, 0);
     
     // Pause button
-    overlay->pause_button = gtk_button_new_with_label("Pause");
+    overlay->pause_button = gtk_button_new_with_label("Pause (P)");
     gtk_style_context_add_class(gtk_widget_get_style_context(overlay->pause_button), "break-button");
     gtk_style_context_add_class(gtk_widget_get_style_context(overlay->pause_button), "break-button-warning");
-    gtk_widget_set_size_request(overlay->pause_button, 120, 40);
+    gtk_widget_set_size_request(overlay->pause_button, 140, 40);
     gtk_box_pack_start(GTK_BOX(overlay->button_box), overlay->pause_button, FALSE, FALSE, 0);
     
     // ESC to dismiss label
@@ -244,7 +244,17 @@ gboolean break_overlay_is_visible(BreakOverlay *overlay) {
 void break_overlay_update_pause_button(BreakOverlay *overlay, const char *label) {
     if (!overlay || !label) return;
     
-    gtk_button_set_label(GTK_BUTTON(overlay->pause_button), label);
+    // Add keyboard shortcut to the label
+    char label_with_shortcut[32];
+    if (g_strcmp0(label, "Pause") == 0) {
+        g_snprintf(label_with_shortcut, sizeof(label_with_shortcut), "Pause (P)");
+    } else if (g_strcmp0(label, "Resume") == 0) {
+        g_snprintf(label_with_shortcut, sizeof(label_with_shortcut), "Resume (R)");
+    } else {
+        g_snprintf(label_with_shortcut, sizeof(label_with_shortcut), "%s", label);
+    }
+    
+    gtk_button_set_label(GTK_BUTTON(overlay->pause_button), label_with_shortcut);
 }
 
 // Event handlers
@@ -280,6 +290,44 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, BreakOverlay
             overlay->callback("dismiss", overlay->user_data);
         }
         return TRUE;
+    }
+    
+    // Handle keyboard shortcuts for buttons
+    switch (event->keyval) {
+        case GDK_KEY_s:
+        case GDK_KEY_S:
+            // Skip break
+            if (overlay->callback) {
+                overlay->callback("skip_break", overlay->user_data);
+            }
+            return TRUE;
+            
+        case GDK_KEY_e:
+        case GDK_KEY_E:
+            // Extend break
+            if (overlay->callback) {
+                overlay->callback("extend_break", overlay->user_data);
+            }
+            return TRUE;
+            
+        case GDK_KEY_p:
+        case GDK_KEY_P:
+            // Pause break
+            if (overlay->callback) {
+                overlay->callback("pause", overlay->user_data);
+            }
+            return TRUE;
+            
+        case GDK_KEY_r:
+        case GDK_KEY_R:
+            // Resume break (same as pause - toggles)
+            if (overlay->callback) {
+                overlay->callback("pause", overlay->user_data);
+            }
+            return TRUE;
+            
+        default:
+            break;
     }
     
     return FALSE;

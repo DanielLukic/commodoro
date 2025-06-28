@@ -13,6 +13,9 @@ struct _BreakOverlay {
     GtkWidget *pause_button;
     GtkWidget *dismiss_label;
     
+    // Multi-monitor support
+    GList *secondary_windows;  // List of secondary overlay windows
+    
     BreakOverlayCallback callback;
     gpointer user_data;
 };
@@ -22,9 +25,14 @@ static void on_extend_clicked(GtkButton *button, BreakOverlay *overlay);
 static void on_pause_clicked(GtkButton *button, BreakOverlay *overlay);
 static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, BreakOverlay *overlay);
 static const char* get_motivational_message(const char *break_type);
+static void create_secondary_overlays(BreakOverlay *overlay);
+static void destroy_secondary_overlays(BreakOverlay *overlay);
 
 BreakOverlay* break_overlay_new(void) {
     BreakOverlay *overlay = g_malloc0(sizeof(BreakOverlay));
+    
+    // Initialize secondary windows list
+    overlay->secondary_windows = NULL;
     
     // Create fullscreen window
     overlay->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -149,6 +157,7 @@ BreakOverlay* break_overlay_new(void) {
 void break_overlay_free(BreakOverlay *overlay) {
     if (!overlay) return;
     
+    destroy_secondary_overlays(overlay);
     gtk_widget_destroy(overlay->window);
     g_free(overlay);
 }
@@ -167,9 +176,20 @@ void break_overlay_show(BreakOverlay *overlay, const char *break_type, int minut
     break_overlay_update_type(overlay, break_type);
     break_overlay_update_time(overlay, minutes, seconds);
     
-    // Show window
+    // Create secondary overlays for other monitors
+    create_secondary_overlays(overlay);
+    
+    // Show main window
     gtk_widget_show_all(overlay->window);
     gtk_window_present(GTK_WINDOW(overlay->window));
+    
+    // Show secondary windows
+    GList *iter;
+    for (iter = overlay->secondary_windows; iter != NULL; iter = iter->next) {
+        GtkWidget *secondary = GTK_WIDGET(iter->data);
+        gtk_widget_show_all(secondary);
+        gtk_window_present(GTK_WINDOW(secondary));
+    }
     
     // Grab focus to ensure key events are captured
     gtk_widget_grab_focus(overlay->window);
@@ -179,6 +199,9 @@ void break_overlay_hide(BreakOverlay *overlay) {
     if (!overlay) return;
     
     gtk_widget_hide(overlay->window);
+    
+    // Hide and destroy secondary windows
+    destroy_secondary_overlays(overlay);
 }
 
 void break_overlay_update_time(BreakOverlay *overlay, int minutes, int seconds) {
@@ -272,4 +295,74 @@ static const char* get_motivational_message(const char *break_type) {
     } else {
         return "Take a moment to relax";
     }
+}
+
+static void create_secondary_overlays(BreakOverlay *overlay) {
+    if (!overlay) return;
+    
+    // Clean up any existing secondary windows first
+    destroy_secondary_overlays(overlay);
+    
+    // Get the default display and number of monitors
+    GdkDisplay *display = gdk_display_get_default();
+    int n_monitors = gdk_display_get_n_monitors(display);
+    
+    // Get the primary monitor (where the main overlay will be shown)
+    GdkMonitor *primary_monitor = gdk_display_get_primary_monitor(display);
+    if (!primary_monitor && n_monitors > 0) {
+        // Fallback to first monitor if no primary is set
+        primary_monitor = gdk_display_get_monitor(display, 0);
+    }
+    
+    // Create overlay windows for all other monitors
+    for (int i = 0; i < n_monitors; i++) {
+        GdkMonitor *monitor = gdk_display_get_monitor(display, i);
+        
+        // Skip the monitor that has the main overlay
+        if (monitor == primary_monitor) {
+            continue;
+        }
+        
+        // Get monitor geometry
+        GdkRectangle geometry;
+        gdk_monitor_get_geometry(monitor, &geometry);
+        
+        // Create a simple overlay window
+        GtkWidget *secondary_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+        gtk_window_set_decorated(GTK_WINDOW(secondary_window), FALSE);
+        gtk_window_set_skip_taskbar_hint(GTK_WINDOW(secondary_window), TRUE);
+        gtk_window_set_skip_pager_hint(GTK_WINDOW(secondary_window), TRUE);
+        gtk_window_set_keep_above(GTK_WINDOW(secondary_window), TRUE);
+        gtk_window_stick(GTK_WINDOW(secondary_window));
+        
+        // Position and size the window to cover the monitor
+        gtk_window_move(GTK_WINDOW(secondary_window), geometry.x, geometry.y);
+        gtk_window_set_default_size(GTK_WINDOW(secondary_window), geometry.width, geometry.height);
+        gtk_window_fullscreen(GTK_WINDOW(secondary_window));
+        
+        // Set black background
+        GtkStyleContext *context = gtk_widget_get_style_context(secondary_window);
+        gtk_style_context_add_class(context, "break-overlay");
+        
+        // Connect key press event to allow ESC on any monitor
+        g_signal_connect(secondary_window, "key-press-event", G_CALLBACK(on_key_press), overlay);
+        
+        // Add to list
+        overlay->secondary_windows = g_list_append(overlay->secondary_windows, secondary_window);
+    }
+}
+
+static void destroy_secondary_overlays(BreakOverlay *overlay) {
+    if (!overlay || !overlay->secondary_windows) return;
+    
+    // Destroy all secondary windows
+    GList *iter;
+    for (iter = overlay->secondary_windows; iter != NULL; iter = iter->next) {
+        GtkWidget *window = GTK_WIDGET(iter->data);
+        gtk_widget_destroy(window);
+    }
+    
+    // Clear the list
+    g_list_free(overlay->secondary_windows);
+    overlay->secondary_windows = NULL;
 }

@@ -905,13 +905,6 @@ static gboolean on_input_activity_detected(gpointer user_data) {
         
         // Start work session
         timer_start(app->timer);
-        
-        // Show main window if it's hidden
-        if (!gtk_widget_get_visible(app->window)) {
-            gtk_widget_show(app->window);
-            gtk_window_present(GTK_WINDOW(app->window));
-            gtk_window_set_urgency_hint(GTK_WINDOW(app->window), TRUE);
-        }
     }
     
     return G_SOURCE_REMOVE; // Remove this idle source

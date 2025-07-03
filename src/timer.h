@@ -143,6 +143,12 @@ void timer_set_auto_start_work(Timer *timer, gboolean auto_start);
  */
 void timer_set_duration_mode(Timer *timer, gboolean use_seconds);
 
+/**
+ * Skips the current work or break phase and starts the next one.
+ * @param timer Timer instance
+ */
+void timer_skip_phase(Timer *timer);
+
 G_END_DECLS
 
 #endif // TIMER_H

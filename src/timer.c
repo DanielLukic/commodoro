@@ -335,3 +335,28 @@ static int timer_get_duration_for_state(Timer *timer, TimerState state) {
     }
 }
 
+void timer_skip_phase(Timer *timer) {
+    if (!timer) return;
+
+    if (timer->timer_id > 0) {
+        g_source_remove(timer->timer_id);
+        timer->timer_id = 0;
+    }
+
+    switch (timer->state) {
+        case TIMER_STATE_WORK:
+            timer_transition_to_next_state(timer);
+            break;
+        case TIMER_STATE_SHORT_BREAK:
+        case TIMER_STATE_LONG_BREAK:
+            timer->work_session_just_finished = FALSE;
+            timer_set_state(timer, TIMER_STATE_WORK);
+            if (timer->state != TIMER_STATE_IDLE && timer->state != TIMER_STATE_PAUSED) {
+                timer->timer_id = g_timeout_add(1000, timer_tick_internal, timer);
+            }
+            break;
+        case TIMER_STATE_IDLE:
+        case TIMER_STATE_PAUSED:
+            break;
+    }
+}

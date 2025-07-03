@@ -55,9 +55,50 @@ make clean && make
 
 ## Keyboard Shortcuts
 
+### In-App Shortcuts
+
 - **Space**: Start/Pause timer
 - **Escape**: Hide to system tray
-- **Settings Button**: Open configuration
+
+### Global Shortcuts
+
+You can create global shortcuts by binding the [command-line commands](#global-shortcuts--d-bus) to a key combination in your desktop environment's system settings.
+
+## Global Shortcuts & D-Bus
+
+Commodoro can be controlled from the command line, allowing you to create global keyboard shortcuts using your desktop environment's settings (e.g., MATE/GNOME Keyboard Shortcuts).
+
+### Commands
+
+The application acts as a client to send a command to a running instance.
+
+- `commodoro toggle_timer`: Starts, pauses, or resumes the timer.
+- `commodoro reset_timer`: Resets the timer to the first session.
+- `commodoro toggle_break`: Skips the current work/break phase and starts the next one.
+- `commodoro show_hide`: Toggles the main window's visibility.
+
+If the application is not running, you can use the `--auto-start` flag to launch it first:
+
+```bash
+# Example: Toggle the timer, launching Commodoro if it's not running
+commodoro toggle_timer --auto-start
+```
+
+This is ideal for binding to a global hotkey.
+
+### D-Bus Interface
+
+For advanced scripting, Commodoro exposes the following D-Bus interface on the session bus:
+
+- **Service:** `org.dl.commodoro`
+- **Object Path:** `/org/dl/commodoro`
+- **Interface:** `org.dl.commodoro.Timer`
+- **Methods:**
+  - `ToggleTimer()`
+  - `ResetTimer()`
+  - `ToggleBreak()`
+  - `ShowHide()`
+  - `GetState()` (returns the current timer state as a string)
 
 ## Audio Features
 

@@ -4,8 +4,8 @@ CFLAGS_GTK3 = $(CFLAGS_COMMON) $(shell pkg-config --cflags gtk+-3.0)
 LIBS_GTK3 = $(shell pkg-config --libs gtk+-3.0) -lX11 -lXtst -lXi -lXss -lasound -lm -pthread
 TARGET = commodoro
 BUILDDIR = build
-SOURCES = src/main.c src/tray_icon.c src/timer.c src/tray_status_icon.c src/audio.c src/settings_dialog.c src/break_overlay.c src/config.c src/input_monitor.c
-OBJECTS = $(BUILDDIR)/main.o $(BUILDDIR)/tray_icon.o $(BUILDDIR)/timer.o $(BUILDDIR)/tray_status_icon.o $(BUILDDIR)/audio.o $(BUILDDIR)/settings_dialog.o $(BUILDDIR)/break_overlay.o $(BUILDDIR)/config.o $(BUILDDIR)/input_monitor.o
+SOURCES = src/main.c src/tray_icon.c src/timer.c src/tray_status_icon.c src/audio.c src/settings_dialog.c src/break_overlay.c src/config.c src/input_monitor.c src/dbus_service.c src/dbus.c
+OBJECTS = $(BUILDDIR)/main.o $(BUILDDIR)/tray_icon.o $(BUILDDIR)/timer.o $(BUILDDIR)/tray_status_icon.o $(BUILDDIR)/audio.o $(BUILDDIR)/settings_dialog.o $(BUILDDIR)/break_overlay.o $(BUILDDIR)/config.o $(BUILDDIR)/input_monitor.o $(BUILDDIR)/dbus_service.o $(BUILDDIR)/dbus.o
 
 all: $(BUILDDIR) $(TARGET)
 
@@ -39,6 +39,12 @@ $(BUILDDIR)/config.o: src/config.c
 
 $(BUILDDIR)/input_monitor.o: src/input_monitor.c
 	$(CC) $(CFLAGS_GTK3) -c src/input_monitor.c -o $(BUILDDIR)/input_monitor.o
+
+$(BUILDDIR)/dbus_service.o: src/dbus_service.c
+	$(CC) $(CFLAGS_GTK3) -c src/dbus_service.c -o $(BUILDDIR)/dbus_service.o
+
+$(BUILDDIR)/dbus.o: src/dbus.c
+	$(CC) $(CFLAGS_GTK3) -c src/dbus.c -o $(BUILDDIR)/dbus.o
 
 # Link everything together
 $(TARGET): $(OBJECTS)

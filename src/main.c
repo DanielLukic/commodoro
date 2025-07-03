@@ -9,43 +9,11 @@
 #include "settings_dialog.h"
 #include "break_overlay.h"
 #include "config.h"
-#include "input_monitor.h"
+#include "app.h"
+#include "callbacks.h"
+#include "dbus.h"
 
-typedef struct {
-    int work_duration;           // in minutes
-    int short_break_duration;    // in minutes  
-    int long_break_duration;     // in minutes
-    int sessions_until_long_break;
-    gboolean test_mode;          // TRUE if custom durations provided
-} CmdLineArgs;
 
-typedef struct {
-    GtkWidget *window;
-    GtkWidget *time_label;
-    GtkWidget *status_label;
-    GtkWidget *session_label;
-    GtkWidget *start_button;
-    GtkWidget *pause_button;
-    GtkWidget *reset_button;
-    GtkWidget *settings_button;
-    GtkWidget *auto_start_check;
-    
-    TrayIcon *tray_icon;
-    TrayStatusIcon *status_tray;
-    Timer *timer;
-    AudioManager *audio;
-    Settings *settings;
-    BreakOverlay *break_overlay;
-    Config *config;              // Configuration manager
-    InputMonitor *input_monitor; // User activity monitor
-    CmdLineArgs *args;           // Command line arguments
-    guint idle_check_source;     // Idle detection timer source
-    gboolean paused_by_idle;     // Track if timer was paused due to idle
-} GomodaroApp;
-
-static void on_start_clicked(GtkButton *button, GomodaroApp *app);
-static void on_pause_clicked(GtkButton *button, GomodaroApp *app);
-static void on_reset_clicked(GtkButton *button, GomodaroApp *app);
 static void on_settings_clicked(GtkButton *button, GomodaroApp *app);
 static void on_timer_state_changed(Timer *timer, TimerState state, gpointer user_data);
 static void on_timer_tick(Timer *timer, int minutes, int seconds, gpointer user_data);
@@ -163,8 +131,9 @@ static CmdLineArgs* parse_command_line(int argc, char *argv[]) {
 }
 
 static void print_usage(const char *program_name) {
-    g_print("Usage: %s [work_duration] [short_break_duration] [sessions_until_long] [long_break_duration]\n\n", program_name);
-    g_print("Examples:\n");
+    g_print("Usage: %s [work_duration] [short_break_duration] [sessions_until_long] [long_break_duration]\n", program_name);
+    g_print("       %s <command> [--auto-start]\n\n", program_name);
+    g_print("Timer mode examples:\n");
     g_print("  %s                    # Normal mode (25m work, 5m break)\n", program_name);
     g_print("  %s 15s 5s 4 10s       # Test mode (15s work, 5s break, 4 cycles, 10s long break)\n", program_name);
     g_print("  %s 2m 30s 2 1m        # Quick test (2m work, 30s break, 2 cycles, 1m long break)\n", program_name);
@@ -172,6 +141,12 @@ static void print_usage(const char *program_name) {
     g_print("Time units:\n");
     g_print("  s = seconds, m = minutes, h = hours\n");
     g_print("  No suffix defaults to minutes\n\n");
+    g_print("D-Bus commands:\n");
+    g_print("  toggle_timer          # Start/pause/resume the timer\n");
+    g_print("  reset_timer           # Reset the timer\n");
+    g_print("  toggle_break          # Skip to next phase\n");
+    g_print("  show_hide             # Toggle window visibility\n");
+    g_print("  --auto-start          # Start Commodoro if not running\n\n");
 }
 
 static void activate(GtkApplication *gtk_app, gpointer user_data) {
@@ -227,6 +202,10 @@ static void activate(GtkApplication *gtk_app, gpointer user_data) {
     // Create input monitor for auto-start detection
     app->input_monitor = input_monitor_new();
     input_monitor_set_callback(app->input_monitor, on_input_activity_detected, app);
+
+    // Create and publish D-Bus service
+    app->dbus_service = dbus_service_new(app);
+    dbus_service_publish(app->dbus_service);
     
     // Create main window
     app->window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -304,7 +283,7 @@ static void activate(GtkApplication *gtk_app, gpointer user_data) {
     
     // Connect signals
     g_signal_connect(app->start_button, "clicked", G_CALLBACK(on_start_clicked), app);
-    g_signal_connect(app->pause_button, "clicked", G_CALLBACK(on_pause_clicked), app);
+    
     g_signal_connect(app->reset_button, "clicked", G_CALLBACK(on_reset_clicked), app);
     g_signal_connect(app->settings_button, "clicked", G_CALLBACK(on_settings_clicked), app);
     g_signal_connect(app->auto_start_check, "toggled", G_CALLBACK(on_auto_start_toggled), app);
@@ -359,9 +338,20 @@ static void activate(GtkApplication *gtk_app, gpointer user_data) {
     
     // Initial display update
     update_display(app);
+    
+    // Check if we should execute a startup command
+    const char *startup_cmd = g_getenv("COMMODORO_STARTUP_CMD");
+    if (startup_cmd) {
+        if (g_strcmp0(startup_cmd, "ToggleTimer") == 0) {
+            // Start the timer
+            timer_start(app->timer);
+        }
+        // Clear the environment variable
+        g_unsetenv("COMMODORO_STARTUP_CMD");
+    }
 }
 
-static void on_start_clicked(GtkButton *button, GomodaroApp *app) {
+void on_start_clicked(GtkButton *button, GomodaroApp *app) {
     (void)button; // Suppress unused parameter warning
     
     TimerState state = timer_get_state(app->timer);
@@ -375,12 +365,9 @@ static void on_start_clicked(GtkButton *button, GomodaroApp *app) {
     }
 }
 
-static void on_pause_clicked(GtkButton *button, GomodaroApp *app) {
-    (void)button; // Suppress unused parameter warning
-    timer_pause(app->timer);
-}
 
-static void on_reset_clicked(GtkButton *button, GomodaroApp *app) {
+
+void on_reset_clicked(GtkButton *button, GomodaroApp *app) {
     (void)button; // Suppress unused parameter warning
     timer_reset(app->timer);
 }
@@ -783,6 +770,7 @@ static void cleanup_app(GomodaroApp *app) {
     if (app->status_tray) tray_status_icon_free(app->status_tray);
     if (app->break_overlay) break_overlay_free(app->break_overlay);
     if (app->input_monitor) input_monitor_free(app->input_monitor);
+    if (app->dbus_service) dbus_service_free(app->dbus_service);
     if (app->settings) settings_free(app->settings);
     if (app->config) config_free(app->config);
     
@@ -982,13 +970,44 @@ static void stop_idle_monitoring(GomodaroApp *app) {
 }
 
 int main(int argc, char *argv[]) {
-    // Handle --help flag
+    gboolean auto_start = FALSE;
+    const char *dbus_command = NULL;
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             print_usage(argv[0]);
             return 0;
+        } else if (strcmp(argv[i], "--auto-start") == 0) {
+            auto_start = TRUE;
+        } else {
+            // Check if it's a D-Bus command
+            const char *command = dbus_parse_command(argv[i]);
+            if (command) {
+                dbus_command = command;
+            }
         }
     }
+
+    // Handle D-Bus commands
+    if (dbus_command) {
+        DBusCommandResult result = dbus_send_command(dbus_command, auto_start, NULL);
+        
+        switch (result) {
+            case DBUS_RESULT_SUCCESS:
+                return 0;
+                
+            case DBUS_RESULT_START_NEEDED:
+                // Start the app and execute the command after startup
+                g_print("Starting Commodoro...\n");
+                g_setenv("COMMODORO_STARTUP_CMD", dbus_command, TRUE);
+                break;
+                
+            case DBUS_RESULT_NOT_RUNNING:
+            case DBUS_RESULT_ERROR:
+                return 1;
+        }
+    }
+
     
     // Parse command line arguments
     CmdLineArgs *cmd_args = parse_command_line(argc, argv);

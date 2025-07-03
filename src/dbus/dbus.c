@@ -3,9 +3,9 @@
 #include <string.h>
 #include <unistd.h>
 
-#define DBUS_SERVICE_NAME "org.dl.commodoro"
-#define DBUS_OBJECT_PATH "/org/dl/commodoro"
-#define DBUS_INTERFACE_NAME "org.dl.commodoro.Timer"
+#define DBUS_SERVICE_NAME "org.dl.zigodoro"
+#define DBUS_OBJECT_PATH "/org/dl/zigodoro"
+#define DBUS_INTERFACE_NAME "org.dl.zigodoro.Timer"
 
 const char* dbus_parse_command(const char *str) {
     if (g_strcmp0(str, "toggle_timer") == 0) {
@@ -53,10 +53,10 @@ DBusCommandResult dbus_send_command(const char *command, gboolean auto_start, vo
             g_error_matches(error, G_IO_ERROR, G_IO_ERROR_DBUS_ERROR)) {
             
             if (auto_start) {
-                g_print("Commodoro is not running.\n");
+                g_print("Zigodoro is not running.\n");
                 result = DBUS_RESULT_START_NEEDED;
             } else {
-                g_printerr("Commodoro is not running. Use --auto-start to launch it.\n");
+                g_printerr("Zigodoro is not running. Use --auto-start to launch it.\n");
                 result = DBUS_RESULT_NOT_RUNNING;
             }
         } else {

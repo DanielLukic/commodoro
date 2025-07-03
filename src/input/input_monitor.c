@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "input_monitor.h"
 #include <stdio.h>
 #include <gtk/gtk.h>

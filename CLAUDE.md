@@ -4,75 +4,59 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Commodoro** is a C/GTK3 Pomodoro timer application converted from the original Python/PyQt6 Pymodoro. It features comprehensive Linux desktop integration including system tray with countdown display and progress arc, global hotkeys, break overlays, and automatic session management.
+**Zigodoro** is a Zig/GTK3 Pomodoro timer application. It features comprehensive Linux desktop integration including system tray with countdown display and progress arc, global hotkeys, break overlays, and automatic session management.
 
-### Original Python Implementation
-The original Pymodoro was a production-ready Linux-native Pomodoro timer built with PyQt6, serving as the reference for this C/GTK4 port.
 
 ## Development Commands
 
-### C/GTK Build and Run
+### Zig/GTK Build and Run
 ```bash
 # Compile and run
-make && ./commodoro
+zig build run
 
 # Debug build
-make debug && ./gomodoro
+zig build -Doptimize=Debug && ./zig-out/bin/zigodoro
 
 # Clean build artifacts
-make clean
+rm -rf zig-out .zig-cache
 ```
 
-### C/GTK Dependencies
+### Zig/GTK Dependencies
 - GTK3 development libraries
 - GLib/GIO for configuration and file handling  
 - GtkStatusIcon for system tray integration (deprecated but functional)
 - X11/Wayland development libraries for global hotkeys
 
-### Original Python Commands (Reference)
-```bash
-# Normal mode (uses persistent config)
-python run.py
-
-# Test mode with custom intervals
-python run.py 5s 3s 2 4s  # 5s work, 3s break, 2 sessions until long break, 4s long break
-python run.py 2m 30s 2 1m  # 2m work, 30s break
-
-# With debug logging
-python run.py --log-level DEBUG
-```
 
 ## Architecture
 
 ### Core Components
-- **Timer System**: `timer/` - Core pomodoro logic (core.py), state management (states.py), and controller (controller.py)
-- **GUI Layer**: `gui/` - Main window, system tray, break overlay, settings dialog, and styling
-- **Input Handling**: `input/` - Global hotkeys and user activity monitoring for auto-start
-- **Configuration**: `config/` - Persistent and in-memory config providers using Pydantic models
-- **Audio**: `audio/` - Sound management for timer events
-- **Utils**: `utils/` - Logging utilities
+- **Timer System**: `src/timer/` - Core pomodoro logic and state management
+- **GUI Layer**: `src/gui/` - Main window, system tray, break overlay, settings dialog, and styling
+- **Input Handling**: `src/input/` - Global hotkeys and user activity monitoring for auto-start
+- **Configuration**: `src/config/` - Persistent and in-memory config providers using JSON
+- **Audio**: `src/audio/` - Sound management for timer events
+- **D-Bus**: `src/dbus/` - D-Bus integration for command-line control
 
 ### Key Design Patterns
-- **Provider Pattern**: ConfigProvider with pluggable backends (PersistentConfig for normal mode, InMemoryConfig for test mode)
-- **Signal-Slot Architecture**: PyQt6 signals connect timer state changes to GUI updates, audio events, and input monitoring
+- **Memory Safety**: Zig's built-in memory safety and error handling
+- **Callback Architecture**: Timer state changes trigger callbacks to GUI updates, audio events, and input monitoring
 - **State Machine**: TimerState enum drives all UI and behavior changes
-- **Component Lifecycle**: Clean initialization/cleanup pattern in PyomodoroApp
+- **Component Lifecycle**: Clean initialization/cleanup pattern in ZigodoroApp
 
-### C/GTK Implementation Mapping
-- **GObject System**: Use GObject for signal/slot architecture mimicking PyQt6
+### Zig/GTK Architecture
+- **GTK Integration**: Direct GTK3 bindings through Zig's C interop
 - **Event-Driven**: GTK main loop handles timer events and GUI updates
-- **State Machine**: Enum-based state management with signal emissions
-- **Modular Design**: Separate compilation units for each major component
+- **State Machine**: Enum-based state management with callback emissions
+- **Modular Design**: Separate Zig files for each major component
 
 ### Entry Points
-- `run.py` - Simple entry point that imports from `pymodoro.main`
-- `pymodoro/main.py` - Argument parsing, config initialization, and app bootstrapping
-- `pymodoro/app.py` - Main application class coordinating all components
+- `src/main.zig` - Main entry point with argument parsing and app bootstrapping
+- `src/app.zig` - Main application class coordinating all components
 
 ### Configuration System
-- Production config: `~/.config/pymodoro/config.json`
-- State persistence: `~/.config/pymodoro/state.json`
-- Logs: `~/.config/pymodoro/logs/`
+- Production config: `~/.config/zigodoro/config.json`
+- State persistence: `~/.config/zigodoro/state.json`
 - Test mode uses in-memory config without file persistence
 
 ### Timer Logic Flow
@@ -82,14 +66,15 @@ python run.py --log-level DEBUG
 4. Audio manager plays sounds based on timer events
 5. Break overlay shows during break states with countdown
 
-## Python to C/GTK Conversion Plan
+## Implementation Status
 
-### Python Dependencies Analysis
-- **PyQt6**: GUI framework → **GTK3** (widgets, windows, signals)
-- **pynput**: Global hotkeys and input monitoring → **X11/XInput2** or **libinput**
-- **pydantic**: Data validation and settings → **GLib GKeyFile** or **JSON-GLib**
-- **pydantic-settings**: Config management → **GSettings** or custom config system
-- **pygame/pyaudio**: Audio playback → **GStreamer** or **PulseAudio**
+### Technology Stack
+- **Zig**: System programming language with memory safety
+- **GTK3**: GUI framework for Linux desktop integration
+- **Cairo**: Graphics library for custom tray icon rendering
+- **X11/XInput2**: Input monitoring and idle detection
+- **ALSA**: Audio playback for timer sounds
+- **D-Bus**: Inter-process communication for command-line control
 
 ### UI Design Requirements
 - **Circular Tray Icon**: Red tomato shape with green border that fills as timer progresses
@@ -97,10 +82,10 @@ python run.py --log-level DEBUG
 - **Main Window**: Large timer display, session info, control buttons, settings section
 - **Break Overlay**: Fullscreen countdown during breaks
 
-### Component Conversion Steps
-1. **Timer Core**: Convert Python timer logic to C with GLib timers ✅
-2. **GTK3 UI**: Build main window matching the Python version's layout ✅
-3. **Tray Icon**: Create circular tomato icon with progress ring using Cairo ✅
+### Implementation Progress
+1. **Timer Core**: Core pomodoro logic with Zig timers ✅
+2. **GTK3 UI**: Main window with timer display and controls ✅
+3. **Tray Icon**: Circular icon with progress ring using Cairo ✅
 4. **System Tray**: Pure GTK3 solution using GtkStatusIcon (single executable) ✅
 5. **GTK3 Conversion**: Resolved GTK version mixing by converting entire app to GTK3 ✅
 6. **Audio System**: Integrate GStreamer for timer sounds ✅
@@ -109,12 +94,12 @@ python run.py --log-level DEBUG
 9. **Break Overlay**: Full-screen GTK window for break periods  
 10. **Auto-progression**: Work→break→work automatic transitions
 11. **Session Management**: Long break after configured sessions
-12. **Configuration Persistence**: Save/load settings from ~/.config/commodoro/
-13. **Enhanced Audio**: Sophisticated chimes with ADSR envelopes and custom file support
+12. **Configuration Persistence**: Save/load settings from ~/.config/zigodoro/
+13. **Enhanced Audio**: ALSA-based audio with timer event sounds
 
 ### Development Workflow
 After each work package:
-1. Build and run the application (`make && ./commodoro`)
+1. Build and run the application (`zig build run`)
 2. Let user confirm functionality works as expected
 3. Create git commit with short summary of what was implemented
 4. Move to next work package

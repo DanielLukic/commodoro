@@ -1,5 +1,7 @@
 .idea
+.zig-cache
 build
 commodoro
+zig-out
 *.log
 *.o

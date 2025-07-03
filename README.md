@@ -1,16 +1,16 @@
-# Commodoro
+# Zigodoro
 
-A fast, native C/GTK3 Pomodoro timer for Linux with comprehensive desktop integration.
+A fast, native Zig/GTK3 Pomodoro timer for Linux with comprehensive desktop integration.
 
 ## Screenshots
 
 <p align="center">
-  <img src="doc/commodoro_main.png" width="400" alt="Commodoro Main Window">
-  <img src="doc/commodoro_tray_icon.png" width="80" alt="System Tray Integration">
+  <img src="doc/zigodoro_main.png" width="400" alt="Zigodoro Main Window">
+  <img src="doc/zigodoro_tray_icon.png" width="80" alt="System Tray Integration">
 </p>
 <p align="center">
-  <img src="doc/commodoro_break.png" width="400" alt="Break Overlay">
-  <img src="doc/commodoro_config.png" width="400" alt="Settings Dialog">
+  <img src="doc/zigodoro_break.png" width="400" alt="Break Overlay">
+  <img src="doc/zigodoro_config.png" width="400" alt="Settings Dialog">
 </p>
 
 ## Features
@@ -22,7 +22,7 @@ A fast, native C/GTK3 Pomodoro timer for Linux with comprehensive desktop integr
 - **Idle Detection**: Auto-pause when idle, auto-resume on activity (optional)
 - **Dark Theme**: Modern GTK3 interface optimized for focus
 - **Audio Alerts**: Built-in chimes for all timer events
-- **Configuration**: Persistent settings in `~/.config/commodoro/`
+- **Configuration**: Persistent settings in `~/.config/zigodoro/`
 
 ## Quick Start
 
@@ -32,15 +32,15 @@ sudo apt install libgtk-3-dev libgstreamer1.0-dev libxtst-dev libxss-dev
 
 # Build and run
 make clean && make
-./commodoro
+./zigodoro
 ```
 
 ## Usage
 
 ```bash
-./commodoro                   # Standard 25/5/15 minute intervals
-./commodoro 5s 3s 2 4s        # Test mode: 5s work, 3s break, 2 sessions, 4s long break
-./commodoro --log-level DEBUG # Debug logging
+./zigodoro                   # Standard 25/5/15 minute intervals
+./zigodoro 5s 3s 2 4s        # Test mode: 5s work, 3s break, 2 sessions, 4s long break
+./zigodoro --log-level DEBUG # Debug logging
 ```
 
 **Time units**: `s` (seconds), `m` (minutes), `h` (hours), no suffix = minutes
@@ -66,33 +66,33 @@ You can create global shortcuts by binding the [command-line commands](#global-s
 
 ## Global Shortcuts & D-Bus
 
-Commodoro can be controlled from the command line, allowing you to create global keyboard shortcuts using your desktop environment's settings (e.g., MATE/GNOME Keyboard Shortcuts).
+Zigodoro can be controlled from the command line, allowing you to create global keyboard shortcuts using your desktop environment's settings (e.g., MATE/GNOME Keyboard Shortcuts).
 
 ### Commands
 
 The application acts as a client to send a command to a running instance.
 
-- `commodoro toggle_timer`: Starts, pauses, or resumes the timer.
-- `commodoro reset_timer`: Resets the timer to the first session.
-- `commodoro toggle_break`: Skips the current work/break phase and starts the next one.
-- `commodoro show_hide`: Toggles the main window's visibility.
+- `zigodoro toggle_timer`: Starts, pauses, or resumes the timer.
+- `zigodoro reset_timer`: Resets the timer to the first session.
+- `zigodoro toggle_break`: Skips the current work/break phase and starts the next one.
+- `zigodoro show_hide`: Toggles the main window's visibility.
 
 If the application is not running, you can use the `--auto-start` flag to launch it first:
 
 ```bash
-# Example: Toggle the timer, launching Commodoro if it's not running
-commodoro toggle_timer --auto-start
+# Example: Toggle the timer, launching Zigodoro if it's not running
+zigodoro toggle_timer --auto-start
 ```
 
 This is ideal for binding to a global hotkey.
 
 ### D-Bus Interface
 
-For advanced scripting, Commodoro exposes the following D-Bus interface on the session bus:
+For advanced scripting, Zigodoro exposes the following D-Bus interface on the session bus:
 
-- **Service:** `org.dl.commodoro`
-- **Object Path:** `/org/dl/commodoro`
-- **Interface:** `org.dl.commodoro.Timer`
+- **Service:** `org.dl.zigodoro`
+- **Object Path:** `/org/dl/zigodoro`
+- **Interface:** `org.dl.zigodoro.Timer`
 - **Methods:**
   - `ToggleTimer()`
   - `ResetTimer()`
@@ -120,7 +120,7 @@ For advanced scripting, Commodoro exposes the following D-Bus interface on the s
 
 **Core Components**: Timer state machine, GTK3 GUI, system tray integration, GStreamer audio, input monitoring, XScreenSaver idle detection, persistent configuration
 
-**Clean C99**: Modular design with proper memory management and error handling
+**Clean Zig**: Modular design with memory safety and error handling
 
 ## Known Issues
 

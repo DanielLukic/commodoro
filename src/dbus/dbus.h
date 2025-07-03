@@ -7,16 +7,16 @@ G_BEGIN_DECLS
 
 typedef enum {
     DBUS_RESULT_SUCCESS,        // Command sent successfully
-    DBUS_RESULT_NOT_RUNNING,    // Commodoro not running (and auto-start not requested)
-    DBUS_RESULT_START_NEEDED,   // Commodoro not running but auto-start requested
+    DBUS_RESULT_NOT_RUNNING,    // Zigodoro not running (and auto-start not requested)
+    DBUS_RESULT_START_NEEDED,   // Zigodoro not running but auto-start requested
     DBUS_RESULT_ERROR           // Other error occurred
 } DBusCommandResult;
 
 /**
- * Sends a D-Bus command to a running Commodoro instance.
+ * Sends a D-Bus command to a running Zigodoro instance.
  * 
  * @param command The D-Bus method name to call (e.g., "ToggleTimer", "ResetTimer", etc.)
- * @param auto_start If TRUE and Commodoro is not running, returns DBUS_RESULT_START_NEEDED
+ * @param auto_start If TRUE and Zigodoro is not running, returns DBUS_RESULT_START_NEEDED
  * @param unused Reserved for future use, pass NULL
  * @return DBusCommandResult indicating the outcome
  */

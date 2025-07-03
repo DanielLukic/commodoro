@@ -1,7 +1,18 @@
 #include "dbus_service.h"
 #include <gio/gio.h>
-#include "app.h"
-#include "callbacks.h"
+#include <gtk/gtk.h>
+
+// Forward declarations of app functions we need
+typedef struct {
+    GtkWidget *window;
+    void *timer;
+} GomodaroApp;
+
+// External functions from Zig
+extern void on_start_clicked_zig(void *app);
+extern void on_reset_clicked_zig(void *app);
+extern int timer_get_state_zig(void *timer);
+extern void timer_skip_phase_zig(void *timer);
 
 struct _DBusService {
     GDBusConnection *connection;
@@ -33,7 +44,7 @@ void dbus_service_free(DBusService *service) {
 
 void dbus_service_publish(DBusService *service) {
     service->owner_id = g_bus_own_name(G_BUS_TYPE_SESSION,
-                                     "org.dl.commodoro",
+                                     "org.dl.zigodoro",
                                      G_BUS_NAME_OWNER_FLAGS_NONE,
                                      on_bus_acquired,
                                      on_name_acquired,
@@ -63,7 +74,7 @@ static void on_name_acquired(GDBusConnection *connection, const gchar *name, gpo
     // This is a simplified introspection XML. A real implementation would be more detailed.
     const gchar *introspection_xml = 
         "<node>"
-        "  <interface name='org.dl.commodoro.Timer'>"
+        "  <interface name='org.dl.zigodoro.Timer'>"
         "    <method name='ToggleTimer'/>"
         "    <method name='ResetTimer'/>"
         "    <method name='ToggleBreak'/>"
@@ -82,7 +93,7 @@ static void on_name_acquired(GDBusConnection *connection, const gchar *name, gpo
     }
 
     g_dbus_connection_register_object(connection,
-                                      "/org/dl/commodoro",
+                                      "/org/dl/zigodoro",
                                       introspection_data->interfaces[0],
                                       &interface_vtable,
                                       service,
@@ -99,7 +110,7 @@ static void on_name_acquired(GDBusConnection *connection, const gchar *name, gpo
 
 static void on_name_lost(GDBusConnection *connection, const gchar *name, gpointer user_data) {
     // Handle the case where we lose the bus name
-    g_printerr("Commodoro is already running. Use 'commodoro show_hide' to show the window.\n");
+    g_printerr("Zigodoro is already running. Use 'zigodoro show_hide' to show the window.\n");
     exit(1);
 }
 
@@ -108,13 +119,13 @@ static void handle_method_call(GDBusConnection *connection, const gchar *sender,
     GomodaroApp *app = (GomodaroApp*)service->app_pointer;
 
     if (g_strcmp0(method_name, "ToggleTimer") == 0) {
-        on_start_clicked(NULL, app);
+        on_start_clicked_zig(app);
         g_dbus_method_invocation_return_value(invocation, NULL);
     } else if (g_strcmp0(method_name, "ResetTimer") == 0) {
-        on_reset_clicked(NULL, app);
+        on_reset_clicked_zig(app);
         g_dbus_method_invocation_return_value(invocation, NULL);
     } else if (g_strcmp0(method_name, "ToggleBreak") == 0) {
-        timer_skip_phase(app->timer);
+        timer_skip_phase_zig(app->timer);
         g_dbus_method_invocation_return_value(invocation, NULL);
     } else if (g_strcmp0(method_name, "ShowHide") == 0) {
         if (gtk_widget_get_visible(app->window)) {
@@ -125,14 +136,14 @@ static void handle_method_call(GDBusConnection *connection, const gchar *sender,
         }
         g_dbus_method_invocation_return_value(invocation, NULL);
     } else if (g_strcmp0(method_name, "GetState") == 0) {
-        TimerState state = timer_get_state(app->timer);
+        int state = timer_get_state_zig(app->timer);
         const char *state_str;
         switch (state) {
-            case TIMER_STATE_IDLE: state_str = "IDLE"; break;
-            case TIMER_STATE_WORK: state_str = "WORK"; break;
-            case TIMER_STATE_SHORT_BREAK: state_str = "SHORT_BREAK"; break;
-            case TIMER_STATE_LONG_BREAK: state_str = "LONG_BREAK"; break;
-            case TIMER_STATE_PAUSED: state_str = "PAUSED"; break;
+            case 0: state_str = "IDLE"; break;
+            case 1: state_str = "WORK"; break;
+            case 2: state_str = "SHORT_BREAK"; break;
+            case 3: state_str = "LONG_BREAK"; break;
+            case 4: state_str = "PAUSED"; break;
             default: state_str = "UNKNOWN"; break;
         }
         g_dbus_method_invocation_return_value(invocation, g_variant_new("(s)", state_str));

@@ -2,11 +2,17 @@
 #include <cairo.h>
 #include <math.h>
 #include <stdio.h>
+#include <glib.h>
+
+// Define M_PI if not already defined
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 struct _TrayIcon {
     cairo_surface_t *icon_surface;
     int size;
-    TimerState state;
+    TrayIconState state;
     int remaining_seconds;
     int total_seconds;
     char *tooltip_text;
@@ -18,11 +24,11 @@ typedef struct {
 } StateColor;
 
 static const StateColor state_colors[] = {
-    [TIMER_STATE_IDLE] = {0.5, 0.5, 0.5},          // Gray
-    [TIMER_STATE_WORK] = {0.86, 0.20, 0.18},       // Red  
-    [TIMER_STATE_SHORT_BREAK] = {0.18, 0.49, 0.20}, // Green (inverse of work: green bg)
-    [TIMER_STATE_LONG_BREAK] = {0.18, 0.49, 0.20},  // Green (same as short break)
-    [TIMER_STATE_PAUSED] = {0.71, 0.54, 0.0}        // Yellow
+    [TRAY_STATE_IDLE] = {0.5, 0.5, 0.5},          // Gray
+    [TRAY_STATE_WORK] = {0.86, 0.20, 0.18},       // Red  
+    [TRAY_STATE_SHORT_BREAK] = {0.18, 0.49, 0.20}, // Green (inverse of work: green bg)
+    [TRAY_STATE_LONG_BREAK] = {0.18, 0.49, 0.20},  // Green (same as short break)
+    [TRAY_STATE_PAUSED] = {0.71, 0.54, 0.0}        // Yellow
 };
 
 static void update_icon_surface(TrayIcon *self);
@@ -38,6 +44,12 @@ static void update_icon_surface(TrayIcon *self) {
     self->icon_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, self->size, self->size);
     cairo_t *cr = cairo_create(self->icon_surface);
     
+    // Debug: verify surface creation
+    if (cairo_surface_status(self->icon_surface) != CAIRO_STATUS_SUCCESS) {
+        fprintf(stderr, "ERROR: Failed to create Cairo surface\n");
+        return;
+    }
+    
     // Clear background with transparent
     cairo_set_operator(cr, CAIRO_OPERATOR_CLEAR);
     cairo_paint(cr);
@@ -52,25 +64,25 @@ static void update_icon_surface(TrayIcon *self) {
     
     // Draw colored circle background
     cairo_set_source_rgba(cr, color.r, color.g, color.b, 1.0);
-    cairo_arc(cr, center_x, center_y, radius, 0, 2 * G_PI);
+    cairo_arc(cr, center_x, center_y, radius, 0, 2 * M_PI);
     cairo_fill(cr);
     
     // Draw progress arc if there's remaining time
-    if (self->state != TIMER_STATE_IDLE && self->state != TIMER_STATE_PAUSED && self->total_seconds > 0) {
+    if (self->state != TRAY_STATE_IDLE && self->state != TRAY_STATE_PAUSED && self->total_seconds > 0) {
         double progress = get_progress(self->remaining_seconds, self->total_seconds);
         if (progress > 0.0) {
             cairo_set_line_width(cr, self->size * 0.15); // 15% of icon size for border
             
             // Set progress arc color based on state (inverse colors)
-            if (self->state == TIMER_STATE_WORK) {
+            if (self->state == TRAY_STATE_WORK) {
                 cairo_set_source_rgba(cr, 0.18, 0.49, 0.20, 1.0); // Green border for work (red bg)
             } else { // Break states
                 cairo_set_source_rgba(cr, 0.86, 0.20, 0.18, 1.0); // Red border for breaks (green bg)
             }
             
             // Draw arc from top, clockwise
-            double start_angle = -G_PI / 2; // Start at top (90 degrees)
-            double span_angle = progress * 2 * G_PI; // Positive for clockwise
+            double start_angle = -M_PI / 2; // Start at top (90 degrees)
+            double span_angle = progress * 2 * M_PI; // Positive for clockwise
             
             double margin = self->size * 0.1; // 10% margin
             double arc_radius = (self->size - 2 * margin) / 2.0;
@@ -84,9 +96,9 @@ static void update_icon_surface(TrayIcon *self) {
     cairo_set_source_rgba(cr, 1.0, 1.0, 1.0, 1.0); // White text
     
     char text[16];
-    if (self->state == TIMER_STATE_IDLE) {
+    if (self->state == TRAY_STATE_IDLE) {
         strcpy(text, "●");
-    } else if (self->state == TIMER_STATE_PAUSED) {
+    } else if (self->state == TRAY_STATE_PAUSED) {
         strcpy(text, "||");
     } else {
         // Show rounded minutes
@@ -135,11 +147,11 @@ static double get_progress(int remaining_seconds, int total_seconds) {
 TrayIcon* tray_icon_new(void) {
     TrayIcon *self = g_malloc0(sizeof(TrayIcon));
     self->size = 64; // Use 64x64 like Python version
-    self->state = TIMER_STATE_IDLE;
+    self->state = TRAY_STATE_IDLE;
     self->remaining_seconds = 0;
     self->total_seconds = 0;
     self->icon_surface = NULL;
-    self->tooltip_text = g_strdup("Commodoro Timer");
+    self->tooltip_text = g_strdup("Zigodoro Timer");
     
     update_icon_surface(self);
     return self;
@@ -156,7 +168,7 @@ void tray_icon_free(TrayIcon *self) {
     g_free(self);
 }
 
-void tray_icon_update(TrayIcon *self, TimerState state, int remaining_seconds, int total_seconds) {
+void tray_icon_update(TrayIcon *self, TrayIconState state, int remaining_seconds, int total_seconds) {
     if (!self) return;
     
     self->state = state;
@@ -171,14 +183,6 @@ void tray_icon_set_tooltip(TrayIcon *self, const char *tooltip) {
     
     g_free(self->tooltip_text);
     self->tooltip_text = g_strdup(tooltip);
-}
-
-gboolean tray_icon_is_embedded(TrayIcon *self) {
-    if (!self) return FALSE;
-    
-    // For now, always return FALSE since we don't have actual tray integration
-    // This will be implemented later with proper system tray support
-    return FALSE;
 }
 
 cairo_surface_t* tray_icon_get_surface(TrayIcon *self) {

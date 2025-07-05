@@ -14,4 +14,5 @@ pub use commodoro_tray_icon::{
 };
 pub use commodoro_break_overlay::*;
 pub use commodoro_settings_dialog::*;
-pub use commodoro_tray_status_icon::*;
+// pub use commodoro_tray_status_icon::*;  // Reverted to C implementation
+pub use commodoro_dbus_service::*;

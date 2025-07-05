@@ -1,0 +1,17 @@
+[package]
+name = "commodoro-dbus-service"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "commodoro_dbus_service"
+
+[dependencies]
+libc = { workspace = true }
+gio = "0.18"
+glib = "0.18"
+gtk = { version = "0.18", features = ["v3_24"] }
+once_cell = "1.19"
+
+[build-dependencies]
+cbindgen = "0.26"

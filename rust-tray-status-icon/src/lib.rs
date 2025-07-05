@@ -3,20 +3,17 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use gdk_pixbuf::Pixbuf;
-use cairo::ImageSurface;
-use glib::translate::{FromGlibPtrNone, ToGlibPtr};
 
 // Use raw GTK sys calls for StatusIcon since it's deprecated and not in gtk-rs 0.18
 use gtk_sys::{
     GtkStatusIcon, gtk_status_icon_new, gtk_status_icon_set_title,
     gtk_status_icon_set_tooltip_text, gtk_status_icon_set_visible,
-    gtk_status_icon_set_from_pixbuf, gtk_status_icon_is_embedded,
+    gtk_status_icon_set_from_icon_name, gtk_status_icon_is_embedded,
 };
 use glib_sys::{GFALSE, GTRUE};
 use gobject_sys::{g_object_unref, g_signal_connect_data};
 
 // Store callbacks in a global mutex since GTK callbacks can't capture arbitrary data
-// Using usize instead of *mut c_void to make it Send+Sync  
 static CALLBACK_STORE: Lazy<Mutex<Option<(TrayStatusIconCallback, usize)>>> = 
     Lazy::new(|| Mutex::new(None));
 
@@ -56,6 +53,10 @@ impl TrayStatusIcon {
             let tooltip = CString::new("Commodoro Timer").unwrap();
             gtk_status_icon_set_tooltip_text(status_icon, tooltip.as_ptr());
             
+            // Try using a standard icon first to see if StatusIcon works at all
+            let icon_name = CString::new("applications-games").unwrap();
+            gtk_status_icon_set_from_icon_name(status_icon, icon_name.as_ptr());
+            
             gtk_status_icon_set_visible(status_icon, GTRUE);
             
             // Connect signals using raw glib calls
@@ -86,22 +87,8 @@ impl TrayStatusIcon {
     }
     
     fn update(&self, surface: *mut cairo_sys::cairo_surface_t, tooltip: Option<&str>) {
-        if surface.is_null() {
-            return;
-        }
-        
-        unsafe {
-            // Get surface dimensions using raw Cairo calls
-            let width = cairo_sys::cairo_image_surface_get_width(surface);
-            let height = cairo_sys::cairo_image_surface_get_height(surface);
-            
-            // Create a simple pixbuf from surface dimensions for now
-            // This is a minimal implementation - proper surface conversion would be more complex
-            if let Some(pixbuf) = Pixbuf::new(gdk_pixbuf::Colorspace::Rgb, true, 8, width, height) {
-                // Update icon using raw pointer
-                gtk_status_icon_set_from_pixbuf(self.status_icon, pixbuf.to_glib_none().0);
-            }
-        }
+        // For now, let's skip the complex pixbuf conversion and just update tooltip
+        // We can add the custom icon later once we confirm the basic mechanism works
         
         // Update tooltip
         if let Some(tooltip_text) = tooltip {

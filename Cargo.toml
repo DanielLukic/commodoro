@@ -9,7 +9,7 @@ members = [
     "commodoro-ffi",
     "rust-break-overlay",
     "rust-settings-dialog",
-    "rust-tray-status-icon"
+    "rust-dbus-service"
 ]
 resolver = "2"
 

@@ -5,10 +5,10 @@ LIBS_GTK3 = $(shell pkg-config --libs gtk+-3.0) -lX11 -lXtst -lXi -lXss -lasound
 RUST_LIBS = ./target/release/libcommodoro_ffi.a
 TARGET = commodoro
 BUILDDIR = build
-# Remove src/timer.c, src/config.c, src/audio.c, src/tray_icon.c, src/break_overlay.c, src/settings_dialog.c, and src/tray_status_icon.c from SOURCES as we're using Rust implementations
-SOURCES = src/main.c src/input_monitor.c src/dbus_service.c src/dbus.c
-# Remove timer.o, config.o, audio.o, tray_icon.o, break_overlay.o, settings_dialog.o, and tray_status_icon.o from OBJECTS
-OBJECTS = $(BUILDDIR)/main.o $(BUILDDIR)/input_monitor.o $(BUILDDIR)/dbus_service.o $(BUILDDIR)/dbus.o
+# Remove src/timer.c, src/config.c, src/audio.c, src/tray_icon.c, src/break_overlay.c, src/settings_dialog.c, and src/dbus_service.c from SOURCES as we're using Rust implementations
+SOURCES = src/main.c src/input_monitor.c src/dbus.c src/tray_status_icon.c
+# Remove timer.o, config.o, audio.o, tray_icon.o, break_overlay.o, settings_dialog.o, and dbus_service.o from OBJECTS
+OBJECTS = $(BUILDDIR)/main.o $(BUILDDIR)/input_monitor.o $(BUILDDIR)/dbus.o $(BUILDDIR)/tray_status_icon.o
 
 all: rust-libs $(BUILDDIR) $(TARGET)
 
@@ -25,11 +25,13 @@ $(BUILDDIR)/main.o: src/main.c
 $(BUILDDIR)/input_monitor.o: src/input_monitor.c
 	$(CC) $(CFLAGS_GTK3) -c src/input_monitor.c -o $(BUILDDIR)/input_monitor.o
 
-$(BUILDDIR)/dbus_service.o: src/dbus_service.c
-	$(CC) $(CFLAGS_GTK3) -c src/dbus_service.c -o $(BUILDDIR)/dbus_service.o
+# Removed dbus_service.c compilation - using Rust implementation
 
 $(BUILDDIR)/dbus.o: src/dbus.c
 	$(CC) $(CFLAGS_GTK3) -c src/dbus.c -o $(BUILDDIR)/dbus.o
+
+$(BUILDDIR)/tray_status_icon.o: src/tray_status_icon.c
+	$(CC) $(CFLAGS_GTK3) -c src/tray_status_icon.c -o $(BUILDDIR)/tray_status_icon.o
 
 # Link everything together with Rust libraries
 $(TARGET): $(OBJECTS)

@@ -15,7 +15,7 @@ void input_monitor_set_callback(struct InputMonitor *monitor,
                                 struct Option_InputMonitorCallback callback,
                                 void *user_data);
 
-void input_monitor_set_window(struct InputMonitor *monitor, void *window);
+void input_monitor_set_window(struct InputMonitor *_monitor, void *_window);
 
 void input_monitor_start(struct InputMonitor *monitor);
 

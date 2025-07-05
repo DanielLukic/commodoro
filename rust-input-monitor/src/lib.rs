@@ -1,284 +1,210 @@
 use std::os::raw::{c_int, c_void};
+use std::ptr;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
-
-use glib::MainContext;
-use evdev::{Device, EventType, InputEvent};
+use glib::{source::timeout_add, SourceId};
+use x11::xlib::{XCloseDisplay, XOpenDisplay, XDefaultRootWindow};
+use x11::xss::{XScreenSaverAllocInfo, XScreenSaverQueryExtension, XScreenSaverQueryInfo};
 use once_cell::sync::Lazy;
-
-// Global state for monitoring
-static MONITOR_STATE: Lazy<Mutex<Option<Arc<InputMonitorState>>>> = Lazy::new(|| Mutex::new(None));
 
 // Callback type matching the C interface
 pub type InputMonitorCallback = extern "C" fn(*mut c_void);
 
-struct InputMonitorState {
-    callback: Option<InputMonitorCallback>,
-    user_data: *mut c_void,
-    is_active: bool,
-}
+// Global state for the timer callback (workaround for thread safety)
+static GLOBAL_MONITOR_STATE: Lazy<Mutex<Option<(InputMonitorCallback, usize, bool)>>> = 
+    Lazy::new(|| Mutex::new(None));
 
-unsafe impl Send for InputMonitorState {}
-unsafe impl Sync for InputMonitorState {}
+static GLOBAL_LAST_IDLE_TIME: Lazy<Mutex<i32>> = Lazy::new(|| Mutex::new(0));
 
 pub struct InputMonitor {
-    // Just a placeholder - actual state is in global MONITOR_STATE
-    _marker: std::marker::PhantomData<()>,
+    is_active: bool,
+    callback: Option<InputMonitorCallback>,
+    user_data: *mut c_void,
+    
+    // Simplified idle monitoring
+    idle_timer_id: Option<SourceId>,
+    activity_threshold: i32,  // seconds of inactivity before considering idle
 }
 
 impl InputMonitor {
     fn new() -> Self {
         Self {
-            _marker: std::marker::PhantomData,
+            is_active: false,
+            callback: None,
+            user_data: ptr::null_mut(),
+            idle_timer_id: None,
+            activity_threshold: 2,  // 2 seconds of activity triggers callback
         }
     }
 
-    fn set_callback(&self, callback: Option<InputMonitorCallback>, user_data: *mut c_void) {
-        if let Ok(mut state) = MONITOR_STATE.lock() {
-            if let Some(ref mut monitor_state) = *state {
-                let new_state = Arc::new(InputMonitorState {
-                    callback,
-                    user_data,
-                    is_active: monitor_state.is_active,
-                });
-                *state = Some(new_state);
-            } else {
-                *state = Some(Arc::new(InputMonitorState {
-                    callback,
-                    user_data,
-                    is_active: false,
-                }));
-            }
-        }
+    fn set_callback(&mut self, callback: Option<InputMonitorCallback>, user_data: *mut c_void) {
+        self.callback = callback;
+        self.user_data = user_data;
     }
 
-    fn set_window(&self, _window: *mut c_void) {
-        // For evdev monitoring, we don't need the window reference
-        // This is just for API compatibility
-    }
+    fn start(&mut self) {
+        if self.is_active {
+            println!("Input monitor: already active, not starting again");
+            return;
+        }
 
-    fn start(&self) {
-        if let Ok(mut state_guard) = MONITOR_STATE.lock() {
-            if let Some(ref state) = *state_guard {
-                if state.is_active {
-                    println!("Input monitor: already active, not starting again");
-                    return;
-                }
-            }
-
-            println!("Input monitor: starting modern evdev-based monitoring");
-            
-            // Update state to active
-            if let Some(ref monitor_state) = *state_guard {
-                let new_state = Arc::new(InputMonitorState {
-                    callback: monitor_state.callback,
-                    user_data: monitor_state.user_data,
-                    is_active: true,
-                });
-                let state_clone = new_state.clone();
-                *state_guard = Some(new_state);
-                
-                // Spawn monitoring task
-                thread::spawn(move || {
-                    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-                    rt.block_on(async {
-                        start_evdev_monitoring(state_clone).await;
-                    });
-                });
+        println!("Input monitor: starting idle monitoring (checking every 500ms)");
+        self.is_active = true;
+        
+        // Store state globally for the timer callback
+        if let Some(callback) = self.callback {
+            if let Ok(mut state) = GLOBAL_MONITOR_STATE.lock() {
+                *state = Some((callback, self.user_data as usize, true));
             }
         }
+        
+        // Initialize last idle time
+        let initial_idle_time = get_idle_time();
+        if let Ok(mut last_idle) = GLOBAL_LAST_IDLE_TIME.lock() {
+            *last_idle = initial_idle_time;
+        }
+
+        // Check for activity every 500ms
+        let source_id = timeout_add(Duration::from_millis(500), || {
+            check_activity_timeout_global()
+        });
+        
+        self.idle_timer_id = Some(source_id);
     }
 
-    fn stop(&self) {
-        if let Ok(mut state_guard) = MONITOR_STATE.lock() {
-            if let Some(ref monitor_state) = *state_guard {
-                // Create new state with is_active = false
-                let new_state = Arc::new(InputMonitorState {
-                    callback: monitor_state.callback,
-                    user_data: monitor_state.user_data,
-                    is_active: false,
-                });
-                *state_guard = Some(new_state);
-                println!("Input monitor: stopped");
+    fn stop(&mut self) {
+        if !self.is_active {
+            return;
+        }
+
+        println!("Input monitor: stopping monitoring");
+
+        // Remove the timer
+        if let Some(timer_id) = self.idle_timer_id.take() {
+            timer_id.remove();
+        }
+
+        // Clear global state
+        if let Ok(mut state) = GLOBAL_MONITOR_STATE.lock() {
+            if let Some((callback, user_data, _)) = *state {
+                *state = Some((callback, user_data, false));
             }
         }
+
+        self.is_active = false;
     }
 
     fn is_active(&self) -> bool {
-        if let Ok(state_guard) = MONITOR_STATE.lock() {
-            if let Some(ref state) = *state_guard {
-                return state.is_active;
-            }
-        }
-        false
+        self.is_active
     }
 
     fn get_idle_time(&self) -> c_int {
-        // Simple fallback idle time detection
-        match get_simple_idle_time() {
-            Ok(idle_seconds) => idle_seconds as c_int,
-            Err(e) => {
-                eprintln!("Failed to get idle time: {}", e);
-                -1
-            }
-        }
+        get_idle_time()
     }
 }
 
-// Modern evdev-based input monitoring
-async fn start_evdev_monitoring(state: Arc<InputMonitorState>) {
-    println!("Starting evdev input monitoring...");
-    
-    // Try to find input devices
-    let devices = match find_input_devices() {
-        Ok(devices) => devices,
-        Err(e) => {
-            eprintln!("Failed to find input devices: {}", e);
-            return;
+fn check_activity_timeout_global() -> glib::ControlFlow {
+    // Check if monitoring is still active
+    let (callback, user_data, is_active) = {
+        if let Ok(state_guard) = GLOBAL_MONITOR_STATE.lock() {
+            if let Some((callback, user_data, is_active)) = *state_guard {
+                (Some(callback), user_data, is_active)
+            } else {
+                return glib::ControlFlow::Break;
+            }
+        } else {
+            return glib::ControlFlow::Break;
         }
     };
 
-    if devices.is_empty() {
-        eprintln!("No accessible input devices found. You may need to run as root or add user to 'input' group.");
-        return;
+    if !is_active {
+        return glib::ControlFlow::Break;
     }
 
-    println!("Found {} input devices to monitor", devices.len());
+    let current_idle_time = get_idle_time();
 
-    // Monitor all devices concurrently
-    let mut streams = Vec::new();
-    for mut device in devices {
-        // evdev 0.12 doesn't have into_event_stream, we'll poll directly
-        streams.push(device);
+    // If we can't get idle time, continue checking
+    if current_idle_time < 0 {
+        return glib::ControlFlow::Continue;
     }
 
-    if streams.is_empty() {
-        eprintln!("No input devices available");
-        return;
-    }
-
-    // Monitor for input events using polling
-    while state.is_active {
-        let mut found_activity = false;
-        
-        for device in &mut streams {
-            // Try to read events from each device
-            if let Ok(events) = device.fetch_events() {
-                for event in events {
-                    if is_user_activity_event(&event) {
-                        println!("User activity detected via evdev!");
-                        trigger_callback_from_async(state.clone());
-                        found_activity = true;
-                        break;
-                    }
-                }
-                if found_activity {
-                    break;
-                }
-            }
-        }
-        
-        if found_activity {
-            break;
-        }
-        
-        // Small delay to avoid busy waiting
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    
-    println!("Evdev monitoring stopped");
-}
-
-fn find_input_devices() -> Result<Vec<Device>, Box<dyn std::error::Error>> {
-    let mut devices = Vec::new();
-    
-    // Try to open common input device paths
-    for entry in std::fs::read_dir("/dev/input")? {
-        let entry = entry?;
-        let path = entry.path();
-        
-        if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
-            if filename.starts_with("event") {
-                match Device::open(&path) {
-                    Ok(device) => {
-                        // Check if device has keyboard or mouse capabilities
-                        if device.supported_events().contains(EventType::KEY) ||
-                           device.supported_events().contains(EventType::RELATIVE) ||
-                           device.supported_events().contains(EventType::ABSOLUTE) {
-                            println!("Opened input device: {} ({})", 
-                                   device.name().unwrap_or("Unknown"), 
-                                   path.display());
-                            devices.push(device);
-                        }
-                    }
-                    Err(e) => {
-                        // This is expected for devices we don't have permission to access
-                        if e.kind() != std::io::ErrorKind::PermissionDenied {
-                            eprintln!("Failed to open {}: {}", path.display(), e);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    Ok(devices)
-}
-
-fn is_user_activity_event(event: &InputEvent) -> bool {
-    match event.event_type() {
-        EventType::KEY => {
-            // Key press events (excluding key release)
-            event.value() == 1
-        }
-        EventType::RELATIVE => {
-            // Mouse movement (check for significant movement)
-            if event.value().abs() > 2 { // Filter out tiny movements
-                true
-            } else {
-                false
-            }
-        }
-        EventType::ABSOLUTE => {
-            // Absolute positioning (touchpad, touchscreen)
-            true
-        }
-        _ => false,
-    }
-}
-
-fn trigger_callback_from_async(state: Arc<InputMonitorState>) {
-    if let Some(callback) = state.callback {
-        let user_data = state.user_data;
-        
-        // Schedule callback on main thread using glib
-        let main_context = MainContext::default();
-        main_context.spawn_local(async move {
-            println!("Triggering input monitor callback from async context");
-            callback(user_data);
-        });
-    }
-}
-
-// Simple idle time detection fallback
-fn get_simple_idle_time() -> Result<u64, Box<dyn std::error::Error>> {
-    // Try to get load average as a rough proxy for system activity
-    // This is a very basic fallback implementation
-    
-    let loadavg_content = std::fs::read_to_string("/proc/loadavg")?;
-    let parts: Vec<&str> = loadavg_content.trim().split_whitespace().collect();
-    if parts.len() >= 1 {
-        let load: f64 = parts[0].parse()?;
-        // Very rough heuristic: if load is low, assume system has been idle
-        if load < 0.1 {
-            return Ok(60); // Assume 60 seconds of idle time
+    let last_idle_time = {
+        if let Ok(last_idle_guard) = GLOBAL_LAST_IDLE_TIME.lock() {
+            *last_idle_guard
         } else {
-            return Ok(0); // System appears active
+            return glib::ControlFlow::Continue;
         }
+    };
+
+    // Check if user became active (idle time decreased significantly)
+    if current_idle_time < last_idle_time - 1 {
+        println!("Input monitor: activity detected! (idle time: {} -> {})", 
+                last_idle_time, current_idle_time);
+
+        // Stop monitoring and trigger callback
+        if let Ok(mut state) = GLOBAL_MONITOR_STATE.lock() {
+            if let Some((cb, ud, _)) = *state {
+                *state = Some((cb, ud, false));
+            }
+        }
+
+        if let Some(callback) = callback {
+            // Schedule callback on main thread
+            glib::idle_add(move || {
+                println!("Input monitor: trigger_callback_idle called, is_active=0");
+                callback(user_data as *mut c_void);
+                glib::ControlFlow::Break
+            });
+        }
+
+        return glib::ControlFlow::Break;
+    }
+
+    // Update last idle time
+    if let Ok(mut last_idle) = GLOBAL_LAST_IDLE_TIME.lock() {
+        *last_idle = current_idle_time;
     }
     
-    Err("Could not determine idle time".into())
+    glib::ControlFlow::Continue
+}
+
+fn get_idle_time() -> c_int {
+    unsafe {
+        let display = XOpenDisplay(ptr::null());
+        if display.is_null() {
+            eprintln!("Failed to open X11 display for idle time detection");
+            return -1;
+        }
+
+        let mut event_base = 0;
+        let mut error_base = 0;
+        if XScreenSaverQueryExtension(display, &mut event_base, &mut error_base) == 0 {
+            eprintln!("XScreenSaver extension not available");
+            XCloseDisplay(display);
+            return -1;
+        }
+
+        let info = XScreenSaverAllocInfo();
+        if info.is_null() {
+            eprintln!("Failed to allocate XScreenSaverInfo");
+            XCloseDisplay(display);
+            return -1;
+        }
+
+        if XScreenSaverQueryInfo(display, XDefaultRootWindow(display), info) == 0 {
+            eprintln!("Failed to query idle time");
+            libc::free(info as *mut libc::c_void);
+            XCloseDisplay(display);
+            return -1;
+        }
+
+        let idle_seconds = ((*info).idle / 1000) as c_int;  // Convert milliseconds to seconds
+
+        libc::free(info as *mut libc::c_void);
+        XCloseDisplay(display);
+
+        idle_seconds
+    }
 }
 
 // C FFI exports
@@ -294,7 +220,7 @@ pub extern "C" fn input_monitor_free(monitor: *mut InputMonitor) {
     }
     
     unsafe {
-        let monitor = Box::from_raw(monitor);
+        let mut monitor = Box::from_raw(monitor);
         monitor.stop();
         drop(monitor);
     }
@@ -311,24 +237,18 @@ pub extern "C" fn input_monitor_set_callback(
     }
     
     unsafe {
-        let monitor = &*monitor;
+        let monitor = &mut *monitor;
         monitor.set_callback(callback, user_data);
     }
 }
 
 #[no_mangle]
 pub extern "C" fn input_monitor_set_window(
-    monitor: *mut InputMonitor,
-    window: *mut c_void,
+    _monitor: *mut InputMonitor,
+    _window: *mut c_void,
 ) {
-    if monitor.is_null() {
-        return;
-    }
-    
-    unsafe {
-        let monitor = &*monitor;
-        monitor.set_window(window);
-    }
+    // No longer needed with idle time polling approach
+    // Keeping for API compatibility
 }
 
 #[no_mangle]
@@ -338,7 +258,7 @@ pub extern "C" fn input_monitor_start(monitor: *mut InputMonitor) {
     }
     
     unsafe {
-        let monitor = &*monitor;
+        let monitor = &mut *monitor;
         monitor.start();
     }
 }
@@ -350,7 +270,7 @@ pub extern "C" fn input_monitor_stop(monitor: *mut InputMonitor) {
     }
     
     unsafe {
-        let monitor = &*monitor;
+        let monitor = &mut *monitor;
         monitor.stop();
     }
 }

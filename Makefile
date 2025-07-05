@@ -2,13 +2,13 @@ CC = gcc
 CFLAGS_COMMON = -Wall -Wextra -std=c99
 CFLAGS_GTK3 = $(CFLAGS_COMMON) $(shell pkg-config --cflags gtk+-3.0) -I./include
 LIBS_GTK3 = $(shell pkg-config --libs gtk+-3.0) -lX11 -lXtst -lXi -lXss -lasound -lm -pthread
-RUST_LIBS = ./target/release/libcommodoro_timer.a
+RUST_LIBS = ./target/release/libcommodoro_ffi.a
 TARGET = commodoro
 BUILDDIR = build
-# Remove src/timer.c from SOURCES as we're using Rust timer
-SOURCES = src/main.c src/tray_icon.c src/tray_status_icon.c src/audio.c src/settings_dialog.c src/break_overlay.c src/config.c src/input_monitor.c src/dbus_service.c src/dbus.c
-# Remove timer.o from OBJECTS
-OBJECTS = $(BUILDDIR)/main.o $(BUILDDIR)/tray_icon.o $(BUILDDIR)/tray_status_icon.o $(BUILDDIR)/audio.o $(BUILDDIR)/settings_dialog.o $(BUILDDIR)/break_overlay.o $(BUILDDIR)/config.o $(BUILDDIR)/input_monitor.o $(BUILDDIR)/dbus_service.o $(BUILDDIR)/dbus.o
+# Remove src/timer.c and src/config.c from SOURCES as we're using Rust implementations
+SOURCES = src/main.c src/tray_icon.c src/tray_status_icon.c src/audio.c src/settings_dialog.c src/break_overlay.c src/input_monitor.c src/dbus_service.c src/dbus.c
+# Remove timer.o and config.o from OBJECTS
+OBJECTS = $(BUILDDIR)/main.o $(BUILDDIR)/tray_icon.o $(BUILDDIR)/tray_status_icon.o $(BUILDDIR)/audio.o $(BUILDDIR)/settings_dialog.o $(BUILDDIR)/break_overlay.o $(BUILDDIR)/input_monitor.o $(BUILDDIR)/dbus_service.o $(BUILDDIR)/dbus.o
 
 all: rust-libs $(BUILDDIR) $(TARGET)
 
@@ -37,9 +37,6 @@ $(BUILDDIR)/settings_dialog.o: src/settings_dialog.c
 
 $(BUILDDIR)/break_overlay.o: src/break_overlay.c
 	$(CC) $(CFLAGS_GTK3) -c src/break_overlay.c -o $(BUILDDIR)/break_overlay.o
-
-$(BUILDDIR)/config.o: src/config.c
-	$(CC) $(CFLAGS_GTK3) -c src/config.c -o $(BUILDDIR)/config.o
 
 $(BUILDDIR)/input_monitor.o: src/input_monitor.c
 	$(CC) $(CFLAGS_GTK3) -c src/input_monitor.c -o $(BUILDDIR)/input_monitor.o

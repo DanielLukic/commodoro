@@ -8,7 +8,7 @@
 #include "audio.h"
 #include "settings_dialog.h"
 #include "break_overlay.h"
-#include "config.h"
+#include "config_rust.h"
 #include "app.h"
 #include "callbacks.h"
 #include "dbus.h"

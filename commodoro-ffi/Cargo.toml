@@ -1,0 +1,12 @@
+[package]
+name = "commodoro-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "commodoro_ffi"
+crate-type = ["staticlib"]
+
+[dependencies]
+commodoro-timer = { path = "../rust-timer" }
+commodoro-config = { path = "../rust-config" }

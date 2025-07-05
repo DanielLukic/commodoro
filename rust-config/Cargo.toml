@@ -1,13 +1,15 @@
 [package]
-name = "commodoro-timer"
+name = "commodoro-config"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "commodoro_timer"
+name = "commodoro_config"
 
 [dependencies]
 libc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [build-dependencies]
 cbindgen = "0.26"

@@ -227,69 +227,15 @@ Settings* settings_dialog_get_settings(SettingsDialog *dialog) {
     // Audio settings (simplified)
     settings->enable_sounds = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(dialog->enable_sounds_check));
     settings->sound_volume = 0.7; // Fixed reasonable volume
-    settings->sound_type = g_strdup("chimes");
-    settings->work_start_sound = NULL;
-    settings->break_start_sound = NULL;
-    settings->session_complete_sound = NULL;
-    settings->timer_finish_sound = NULL;
+    settings_set_sound_type(settings, "chimes");
+    settings_set_work_start_sound(settings, NULL);
+    settings_set_break_start_sound(settings, NULL);
+    // session_complete_sound and timer_finish_sound don't have setters yet, leave them as NULL
     
     return settings;
 }
 
-Settings* settings_new_default(void) {
-    Settings *settings = g_malloc0(sizeof(Settings));
-    
-    settings->work_duration = 25;
-    settings->short_break_duration = 5;
-    settings->long_break_duration = 15;
-    settings->sessions_until_long_break = 4;
-    settings->auto_start_work_after_break = TRUE;
-    settings->enable_idle_detection = FALSE;  // Off by default
-    settings->idle_timeout_minutes = 2;        // 2 minutes default
-    settings->enable_sounds = TRUE;
-    settings->sound_volume = 0.7; // Fixed reasonable volume
-    settings->sound_type = g_strdup("chimes");
-    settings->work_start_sound = NULL;
-    settings->break_start_sound = NULL;
-    settings->session_complete_sound = NULL;
-    settings->timer_finish_sound = NULL;
-    
-    return settings;
-}
-
-void settings_free(Settings *settings) {
-    if (!settings) return;
-    
-    g_free(settings->sound_type);
-    g_free(settings->work_start_sound);
-    g_free(settings->break_start_sound);
-    g_free(settings->session_complete_sound);
-    g_free(settings->timer_finish_sound);
-    g_free(settings);
-}
-
-Settings* settings_copy(const Settings *settings) {
-    if (!settings) return NULL;
-    
-    Settings *copy = g_malloc0(sizeof(Settings));
-    
-    copy->work_duration = settings->work_duration;
-    copy->short_break_duration = settings->short_break_duration;
-    copy->long_break_duration = settings->long_break_duration;
-    copy->sessions_until_long_break = settings->sessions_until_long_break;
-    copy->auto_start_work_after_break = settings->auto_start_work_after_break;
-    copy->enable_idle_detection = settings->enable_idle_detection;
-    copy->idle_timeout_minutes = settings->idle_timeout_minutes;
-    copy->enable_sounds = settings->enable_sounds;
-    copy->sound_volume = settings->sound_volume;
-    copy->sound_type = g_strdup(settings->sound_type);
-    copy->work_start_sound = g_strdup(settings->work_start_sound);
-    copy->break_start_sound = g_strdup(settings->break_start_sound);
-    copy->session_complete_sound = g_strdup(settings->session_complete_sound);
-    copy->timer_finish_sound = g_strdup(settings->timer_finish_sound);
-    
-    return copy;
-}
+// Settings management functions are now provided by config_rust.h
 
 // Callback implementations
 static void on_restore_defaults_clicked(GtkButton *button, SettingsDialog *dialog) {

@@ -3,7 +3,7 @@ members = [
     "rust-timer",
     "rust-config",
     "rust-audio",
-    "commodoro-ffi", "rust-input-monitor",
+    "commodoro-ffi", "rust-input-monitor", "rust-tray-icon",
 ]
 resolver = "2"
 

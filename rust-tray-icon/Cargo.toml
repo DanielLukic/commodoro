@@ -1,0 +1,16 @@
+[package]
+name = "commodoro-tray-icon"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "commodoro_tray_icon"
+
+[dependencies]
+commodoro-timer = { path = "../rust-timer" }
+libc = { workspace = true }
+cairo-rs = { version = "0.19", features = ["v1_16"] }
+glib = "0.19"
+
+[build-dependencies]
+cbindgen = "0.26"

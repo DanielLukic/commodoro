@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include "tray_icon.h"
+#include "tray_icon_rust.h"
 #include "timer_rust.h"
 #include "tray_status_icon.h"
 #include "audio_rust.h"

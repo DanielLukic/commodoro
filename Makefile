@@ -5,10 +5,10 @@ LIBS_GTK3 = $(shell pkg-config --libs gtk+-3.0) -lX11 -lXtst -lXi -lXss -lasound
 RUST_LIBS = ./target/release/libcommodoro_ffi.a
 TARGET = commodoro
 BUILDDIR = build
-# Remove src/timer.c, src/config.c, and src/audio.c from SOURCES as we're using Rust implementations
-SOURCES = src/main.c src/tray_icon.c src/tray_status_icon.c src/settings_dialog.c src/break_overlay.c src/input_monitor.c src/dbus_service.c src/dbus.c
-# Remove timer.o, config.o, and audio.o from OBJECTS
-OBJECTS = $(BUILDDIR)/main.o $(BUILDDIR)/tray_icon.o $(BUILDDIR)/tray_status_icon.o $(BUILDDIR)/settings_dialog.o $(BUILDDIR)/break_overlay.o $(BUILDDIR)/input_monitor.o $(BUILDDIR)/dbus_service.o $(BUILDDIR)/dbus.o
+# Remove src/timer.c, src/config.c, src/audio.c, and src/tray_icon.c from SOURCES as we're using Rust implementations
+SOURCES = src/main.c src/tray_status_icon.c src/settings_dialog.c src/break_overlay.c src/input_monitor.c src/dbus_service.c src/dbus.c
+# Remove timer.o, config.o, audio.o, and tray_icon.o from OBJECTS
+OBJECTS = $(BUILDDIR)/main.o $(BUILDDIR)/tray_status_icon.o $(BUILDDIR)/settings_dialog.o $(BUILDDIR)/break_overlay.o $(BUILDDIR)/input_monitor.o $(BUILDDIR)/dbus_service.o $(BUILDDIR)/dbus.o
 
 all: rust-libs $(BUILDDIR) $(TARGET)
 
@@ -21,10 +21,6 @@ $(BUILDDIR):
 # Compile all sources with GTK3
 $(BUILDDIR)/main.o: src/main.c
 	$(CC) $(CFLAGS_GTK3) -c src/main.c -o $(BUILDDIR)/main.o
-
-$(BUILDDIR)/tray_icon.o: src/tray_icon.c
-	$(CC) $(CFLAGS_GTK3) -c src/tray_icon.c -o $(BUILDDIR)/tray_icon.o
-
 
 $(BUILDDIR)/tray_status_icon.o: src/tray_status_icon.c
 	$(CC) $(CFLAGS_GTK3) -c src/tray_status_icon.c -o $(BUILDDIR)/tray_status_icon.o

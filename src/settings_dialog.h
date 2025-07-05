@@ -4,6 +4,7 @@
 #include <gtk/gtk.h>
 #include <glib.h>
 #include "config_rust.h"
+#include "audio_rust.h"
 
 G_BEGIN_DECLS
 
@@ -17,9 +18,7 @@ typedef struct _SettingsDialog SettingsDialog;
 typedef void (*SettingsDialogCallback)(const char *action, gpointer user_data);
 
 // Settings structure is now defined in config_rust.h
-
-// Forward declaration for AudioManager
-typedef struct _AudioManager AudioManager;
+// AudioManager is now defined in audio_rust.h
 
 /**
  * Creates a new settings dialog

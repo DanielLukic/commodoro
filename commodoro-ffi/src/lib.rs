@@ -1,3 +1,4 @@
-// Re-export all FFI functions from timer and config modules
+// Re-export all FFI functions from timer, config, and audio modules
 pub use commodoro_timer::*;
 pub use commodoro_config::*;
+pub use commodoro_audio::*;

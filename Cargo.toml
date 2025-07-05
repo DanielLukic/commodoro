@@ -2,6 +2,7 @@
 members = [
     "rust-timer",
     "rust-config",
+    "rust-audio",
     "commodoro-ffi",
 ]
 resolver = "2"

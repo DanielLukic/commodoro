@@ -6,8 +6,11 @@ members = [
     "rust-input-monitor",
     "rust-tray-icon",
     "rust-dbus",
-    "commodoro-ffi"
-, "rust-break-overlay"]
+    "commodoro-ffi",
+    "rust-break-overlay",
+    "rust-settings-dialog",
+    "rust-tray-status-icon"
+]
 resolver = "2"
 
 [workspace.dependencies]

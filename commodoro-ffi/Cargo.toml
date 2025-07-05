@@ -14,3 +14,4 @@ commodoro-audio = { path = "../rust-audio" }
 commodoro-tray-icon = { path = "../rust-tray-icon" }
 commodoro-break-overlay = { path = "../rust-break-overlay" }
 commodoro-settings-dialog = { path = "../rust-settings-dialog" }
+commodoro-tray-status-icon = { path = "../rust-tray-status-icon" }

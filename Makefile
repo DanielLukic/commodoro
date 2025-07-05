@@ -1,13 +1,19 @@
 CC = gcc
 CFLAGS_COMMON = -Wall -Wextra -std=c99
-CFLAGS_GTK3 = $(CFLAGS_COMMON) $(shell pkg-config --cflags gtk+-3.0)
+CFLAGS_GTK3 = $(CFLAGS_COMMON) $(shell pkg-config --cflags gtk+-3.0) -I./include
 LIBS_GTK3 = $(shell pkg-config --libs gtk+-3.0) -lX11 -lXtst -lXi -lXss -lasound -lm -pthread
+RUST_LIBS = ./target/release/libcommodoro_timer.a
 TARGET = commodoro
 BUILDDIR = build
-SOURCES = src/main.c src/tray_icon.c src/timer.c src/tray_status_icon.c src/audio.c src/settings_dialog.c src/break_overlay.c src/config.c src/input_monitor.c src/dbus_service.c src/dbus.c
-OBJECTS = $(BUILDDIR)/main.o $(BUILDDIR)/tray_icon.o $(BUILDDIR)/timer.o $(BUILDDIR)/tray_status_icon.o $(BUILDDIR)/audio.o $(BUILDDIR)/settings_dialog.o $(BUILDDIR)/break_overlay.o $(BUILDDIR)/config.o $(BUILDDIR)/input_monitor.o $(BUILDDIR)/dbus_service.o $(BUILDDIR)/dbus.o
+# Remove src/timer.c from SOURCES as we're using Rust timer
+SOURCES = src/main.c src/tray_icon.c src/tray_status_icon.c src/audio.c src/settings_dialog.c src/break_overlay.c src/config.c src/input_monitor.c src/dbus_service.c src/dbus.c
+# Remove timer.o from OBJECTS
+OBJECTS = $(BUILDDIR)/main.o $(BUILDDIR)/tray_icon.o $(BUILDDIR)/tray_status_icon.o $(BUILDDIR)/audio.o $(BUILDDIR)/settings_dialog.o $(BUILDDIR)/break_overlay.o $(BUILDDIR)/config.o $(BUILDDIR)/input_monitor.o $(BUILDDIR)/dbus_service.o $(BUILDDIR)/dbus.o
 
-all: $(BUILDDIR) $(TARGET)
+all: rust-libs $(BUILDDIR) $(TARGET)
+
+rust-libs:
+	cargo build --release
 
 $(BUILDDIR):
 	mkdir -p $(BUILDDIR)
@@ -19,8 +25,6 @@ $(BUILDDIR)/main.o: src/main.c
 $(BUILDDIR)/tray_icon.o: src/tray_icon.c
 	$(CC) $(CFLAGS_GTK3) -c src/tray_icon.c -o $(BUILDDIR)/tray_icon.o
 
-$(BUILDDIR)/timer.o: src/timer.c
-	$(CC) $(CFLAGS_GTK3) -c src/timer.c -o $(BUILDDIR)/timer.o
 
 $(BUILDDIR)/tray_status_icon.o: src/tray_status_icon.c
 	$(CC) $(CFLAGS_GTK3) -c src/tray_status_icon.c -o $(BUILDDIR)/tray_status_icon.o
@@ -46,15 +50,16 @@ $(BUILDDIR)/dbus_service.o: src/dbus_service.c
 $(BUILDDIR)/dbus.o: src/dbus.c
 	$(CC) $(CFLAGS_GTK3) -c src/dbus.c -o $(BUILDDIR)/dbus.o
 
-# Link everything together
+# Link everything together with Rust libraries
 $(TARGET): $(OBJECTS)
-	$(CC) -o $(TARGET) $(OBJECTS) $(LIBS_GTK3)
+	$(CC) -o $(TARGET) $(OBJECTS) $(RUST_LIBS) $(LIBS_GTK3)
 
 debug: CFLAGS_COMMON += -g -DDEBUG
 debug: $(TARGET)
 
 clean:
 	rm -rf $(BUILDDIR) $(TARGET)
+	cargo clean
 
 install: $(TARGET)
 	cp $(TARGET) /usr/local/bin/

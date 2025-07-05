@@ -3,7 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 #include "tray_icon.h"
-#include "timer.h"
+#include "timer_rust.h"
 #include "tray_status_icon.h"
 #include "audio.h"
 #include "settings_dialog.h"

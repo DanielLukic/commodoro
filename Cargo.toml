@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "rust-timer",
+]
+resolver = "2"
+
+[workspace.dependencies]
+libc = "0.2"
+
+[profile.release]
+lto = true
+opt-level = 3

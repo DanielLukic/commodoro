@@ -3,7 +3,7 @@
 
 #include <gtk/gtk.h>
 #include <cairo.h>
-#include "timer.h"
+#include "timer_rust.h"
 
 G_BEGIN_DECLS
 

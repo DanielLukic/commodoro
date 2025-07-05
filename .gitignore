@@ -3,3 +3,12 @@ build
 commodoro
 *.log
 *.o
+
+# Rust build artifacts
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Generated header files
+include/commodoro_timer.h

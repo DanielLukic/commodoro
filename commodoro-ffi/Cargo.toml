@@ -12,3 +12,5 @@ commodoro-timer = { path = "../rust-timer" }
 commodoro-config = { path = "../rust-config" }
 commodoro-audio = { path = "../rust-audio" }
 commodoro-tray-icon = { path = "../rust-tray-icon" }
+commodoro-break-overlay = { path = "../rust-break-overlay" }
+commodoro-settings-dialog = { path = "../rust-settings-dialog" }

@@ -12,3 +12,5 @@ pub use commodoro_tray_icon::{
     tray_icon_is_embedded,
     tray_icon_get_surface,
 };
+pub use commodoro_break_overlay::*;
+pub use commodoro_settings_dialog::*;

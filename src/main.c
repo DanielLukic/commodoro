@@ -322,8 +322,7 @@ static void activate(GtkApplication *gtk_app, gpointer user_data) {
     // Store app pointer in window data
     g_object_set_data(G_OBJECT(app->window), "app", app);
     
-    // Assign window to input monitor for GTK event-based detection
-    input_monitor_set_window(app->input_monitor, app->window);
+    // Input monitor now uses simplified idle time polling (no window needed)
     
     // Show all widgets and present window with enhanced focus (matches working pymodoro pattern)
     gtk_widget_show_all(app->window);

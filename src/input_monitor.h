@@ -35,12 +35,6 @@ void input_monitor_free(InputMonitor *monitor);
  */
 void input_monitor_set_callback(InputMonitor *monitor, InputMonitorCallback callback, gpointer user_data);
 
-/**
- * Sets the window for GTK event-based input monitoring
- * @param monitor InputMonitor instance
- * @param window GTK window to monitor for events
- */
-void input_monitor_set_window(InputMonitor *monitor, GtkWidget *window);
 
 /**
  * Starts monitoring user input activity

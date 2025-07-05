@@ -3,31 +3,23 @@
 #include <gtk/gtk.h>
 #include <gdk/gdkx.h>
 #include <X11/Xlib.h>
-#include <X11/extensions/XInput2.h>
 #include <X11/extensions/scrnsaver.h>
-#include <pthread.h>
-#include <unistd.h>
 
 struct _InputMonitor {
     gboolean is_active;
     InputMonitorCallback callback;
     gpointer user_data;
-    GtkWidget *window;
-    gulong signal_handler_id;
     
-    // X11 global input monitoring
-    Display *x11_display;
-    pthread_t x11_thread;
-    gboolean x11_thread_running;
-    gboolean use_global_monitoring;
-    int xi_opcode;  // XInput2 opcode for event filtering
+    // Simplified idle monitoring
+    guint idle_timer_id;
+    int last_idle_time;
+    int activity_threshold;  // seconds of inactivity before considering idle
+    int consecutive_failures;  // Track consecutive query failures
+    Display *shared_display;   // Reuse display connection
 };
 
-static gboolean on_window_event(GtkWidget *widget, GdkEvent *event, gpointer user_data);
-static void* x11_monitor_thread(void *data);
+static gboolean check_activity_timeout(gpointer user_data);
 static gboolean trigger_callback_idle(gpointer user_data);
-static gboolean setup_x11_monitoring(InputMonitor *monitor);
-static void cleanup_x11_monitoring(InputMonitor *monitor);
 
 InputMonitor* input_monitor_new(void) {
     InputMonitor *monitor = g_malloc0(sizeof(InputMonitor));
@@ -35,14 +27,11 @@ InputMonitor* input_monitor_new(void) {
     monitor->is_active = FALSE;
     monitor->callback = NULL;
     monitor->user_data = NULL;
-    monitor->window = NULL;
-    monitor->signal_handler_id = 0;
-    
-    // X11 global monitoring
-    monitor->x11_display = NULL;
-    monitor->x11_thread_running = FALSE;
-    monitor->use_global_monitoring = TRUE;  // Default to global monitoring
-    monitor->xi_opcode = 0;
+    monitor->idle_timer_id = 0;
+    monitor->last_idle_time = 0;
+    monitor->activity_threshold = 2;  // 2 seconds of activity triggers callback
+    monitor->consecutive_failures = 0;
+    monitor->shared_display = NULL;
     
     return monitor;
 }
@@ -51,7 +40,13 @@ void input_monitor_free(InputMonitor *monitor) {
     if (!monitor) return;
     
     input_monitor_stop(monitor);
-    cleanup_x11_monitoring(monitor);
+    
+    // Close shared display if open
+    if (monitor->shared_display) {
+        XCloseDisplay(monitor->shared_display);
+        monitor->shared_display = NULL;
+    }
+    
     g_free(monitor);
 }
 
@@ -62,10 +57,6 @@ void input_monitor_set_callback(InputMonitor *monitor, InputMonitorCallback call
     monitor->user_data = user_data;
 }
 
-void input_monitor_set_window(InputMonitor *monitor, GtkWidget *window) {
-    if (!monitor) return;
-    monitor->window = window;
-}
 
 void input_monitor_start(InputMonitor *monitor) {
     if (!monitor) {
@@ -78,42 +69,30 @@ void input_monitor_start(InputMonitor *monitor) {
         return;
     }
     
-    g_print("Input monitor: starting monitoring\n");
+    g_print("Input monitor: starting idle monitoring (checking every 250ms)\n");
     monitor->is_active = TRUE;
     
-    if (monitor->use_global_monitoring) {
-        // Use X11 global input monitoring
-        if (setup_x11_monitoring(monitor)) {
-            g_print("Global input monitoring started successfully\n");
-        } else {
-            // Fallback to window-based monitoring
-            g_print("Failed to setup global monitoring, using window-based fallback\n");
-            monitor->use_global_monitoring = FALSE;
-            
-            if (monitor->window) {
-                monitor->signal_handler_id = g_signal_connect(monitor->window, "event", 
-                                                             G_CALLBACK(on_window_event), monitor);
-            }
-        }
-    } else if (monitor->window) {
-        // Use GTK window event monitoring (fallback)
-        monitor->signal_handler_id = g_signal_connect(monitor->window, "event", 
-                                                     G_CALLBACK(on_window_event), monitor);
+    // Get initial idle time in milliseconds
+    monitor->last_idle_time = input_monitor_get_idle_time(monitor);
+    if (monitor->last_idle_time < 0) {
+        monitor->last_idle_time = 0;  // Start from 0 if we can't get initial value
     }
+    g_print("Input monitor: initial idle time = %d.%03d seconds\n", 
+            monitor->last_idle_time / 1000, monitor->last_idle_time % 1000);
+    
+    // Check for activity every 250ms for better responsiveness
+    monitor->idle_timer_id = g_timeout_add(250, check_activity_timeout, monitor);
 }
 
 void input_monitor_stop(InputMonitor *monitor) {
     if (!monitor || !monitor->is_active) return;
     
-    // Stop X11 global monitoring
-    if (monitor->use_global_monitoring) {
-        cleanup_x11_monitoring(monitor);
-    }
+    g_print("Input monitor: stopping monitoring\n");
     
-    // Disconnect the GTK signal handler if using window monitoring
-    if (monitor->signal_handler_id && monitor->window) {
-        g_signal_handler_disconnect(monitor->window, monitor->signal_handler_id);
-        monitor->signal_handler_id = 0;
+    // Remove the timer
+    if (monitor->idle_timer_id) {
+        g_source_remove(monitor->idle_timer_id);
+        monitor->idle_timer_id = 0;
     }
     
     monitor->is_active = FALSE;
@@ -124,39 +103,67 @@ gboolean input_monitor_is_active(InputMonitor *monitor) {
     return monitor->is_active;
 }
 
-static gboolean on_window_event(GtkWidget *widget, GdkEvent *event, gpointer user_data) {
-    (void)widget; // Suppress unused parameter warning
+static gboolean check_activity_timeout(gpointer user_data) {
     InputMonitor *monitor = (InputMonitor*)user_data;
     
-    if (!monitor->is_active) return FALSE;
+    if (!monitor->is_active) {
+        return G_SOURCE_REMOVE;
+    }
     
-    // Check for user activity events (same as working pymodoro implementation)
-    if (event->type == GDK_KEY_PRESS || 
-        event->type == GDK_BUTTON_PRESS || 
-        event->type == GDK_MOTION_NOTIFY) {
+    int current_idle_ms = input_monitor_get_idle_time(monitor);
+    
+    // If we can't get idle time, continue checking but don't trigger
+    if (current_idle_ms < 0) {
+        // After too many failures, stop trying
+        if (monitor->consecutive_failures > 20) {
+            g_warning("Input monitor: too many failures, stopping");
+            monitor->is_active = FALSE;
+            return G_SOURCE_REMOVE;
+        }
+        return G_SOURCE_CONTINUE;
+    }
+    
+    // Convert to seconds for logging
+    int current_idle_sec = current_idle_ms / 1000;
+    int last_idle_sec = monitor->last_idle_time / 1000;
+    
+    // Detect activity: idle time reset to near zero (< 500ms)
+    // This catches when user moves mouse/types after being idle
+    if (monitor->last_idle_time > 2000 && current_idle_ms < 500) {
+        g_print("Input monitor: activity detected! (idle: %d.%03ds -> %d.%03ds)\n", 
+                last_idle_sec, monitor->last_idle_time % 1000,
+                current_idle_sec, current_idle_ms % 1000);
         
-        
-        // Stop monitoring immediately
+        // Stop monitoring and trigger callback
         monitor->is_active = FALSE;
         
-        // Trigger callback using g_idle_add 
         if (monitor->callback) {
             g_idle_add(trigger_callback_idle, monitor);
         }
         
-        // Disconnect signal handler
-        if (monitor->signal_handler_id) {
-            g_signal_handler_disconnect(monitor->window, monitor->signal_handler_id);
-            monitor->signal_handler_id = 0;
-        }
-        
-        return TRUE; // Event handled
+        return G_SOURCE_REMOVE;
     }
     
-    return FALSE; // Let other handlers process the event
+    // Also detect significant decreases in idle time (> 1 second drop)
+    // This handles cases where the idle timer doesn't fully reset
+    if (current_idle_ms < monitor->last_idle_time - 1000) {
+        g_print("Input monitor: activity detected (significant decrease)! (idle: %d.%03ds -> %d.%03ds)\n", 
+                last_idle_sec, monitor->last_idle_time % 1000,
+                current_idle_sec, current_idle_ms % 1000);
+        
+        // Stop monitoring and trigger callback
+        monitor->is_active = FALSE;
+        
+        if (monitor->callback) {
+            g_idle_add(trigger_callback_idle, monitor);
+        }
+        
+        return G_SOURCE_REMOVE;
+    }
+    
+    monitor->last_idle_time = current_idle_ms;
+    return G_SOURCE_CONTINUE;
 }
-
-// X11 Global Input Monitoring Implementation
 
 static gboolean trigger_callback_idle(gpointer user_data) {
     InputMonitor *monitor = (InputMonitor*)user_data;
@@ -170,177 +177,76 @@ static gboolean trigger_callback_idle(gpointer user_data) {
     return G_SOURCE_REMOVE;
 }
 
-static void* x11_monitor_thread(void *data) {
-    InputMonitor *monitor = (InputMonitor*)data;
-    Display *display = monitor->x11_display;
+int input_monitor_get_idle_time(InputMonitor *monitor) {
+    // Try to reuse existing display connection
+    Display *display = monitor ? monitor->shared_display : NULL;
+    gboolean created_display = FALSE;
     
     if (!display) {
-        return NULL;
-    }
-    
-    // Set up XInput2 for raw input events
-    XIEventMask evmask;
-    unsigned char mask[(XI_LASTEVENT + 7)/8] = { 0 };
-    
-    XISetMask(mask, XI_RawKeyPress);
-    XISetMask(mask, XI_RawButtonPress);
-    XISetMask(mask, XI_RawMotion);
-    
-    evmask.deviceid = XIAllMasterDevices;
-    evmask.mask_len = sizeof(mask);
-    evmask.mask = mask;
-    
-    if (XISelectEvents(display, DefaultRootWindow(display), &evmask, 1) != Success) {
-        g_warning("Failed to select XInput2 events");
-        return NULL;
-    }
-    
-    // Event loop
-    while (monitor->x11_thread_running) {
-        if (XPending(display) > 0) {
-            XEvent event;
-            XNextEvent(display, &event);
-            
-            if (event.type == GenericEvent && event.xcookie.extension == monitor->xi_opcode) {
-                if (XGetEventData(display, &event.xcookie)) {
-                    XIRawEvent *raw_event = (XIRawEvent*)event.xcookie.data;
-                    
-                    // Check for activity (keyboard press, mouse button, or significant mouse movement)
-                    if (raw_event->evtype == XI_RawKeyPress || 
-                        raw_event->evtype == XI_RawButtonPress ||
-                        raw_event->evtype == XI_RawMotion) {
-                        
-                        // For mouse motion, only trigger on significant movement
-                        if (raw_event->evtype == XI_RawMotion) {
-                            // Simple threshold to avoid triggering on tiny movements
-                            static double last_x = 0, last_y = 0;
-                            double curr_x = 0, curr_y = 0;
-                            
-                            // Get current mouse position (simplified)
-                            if (raw_event->valuators.mask_len > 0) {
-                                if (XIMaskIsSet(raw_event->valuators.mask, 0)) curr_x = raw_event->raw_values[0];
-                                if (XIMaskIsSet(raw_event->valuators.mask, 1)) curr_y = raw_event->raw_values[1];
-                                
-                                double dx = curr_x - last_x;
-                                double dy = curr_y - last_y;
-                                double distance = dx*dx + dy*dy;
-                                
-                                // Only trigger on movements > 10 pixels
-                                if (distance < 100) {
-                                    XFreeEventData(display, &event.xcookie);
-                                    continue;
-                                }
-                                
-                                last_x = curr_x;
-                                last_y = curr_y;
-                            }
-                        }
-                        
-                        // Activity detected - trigger callback in main thread
-                        g_print("X11 input monitor: activity detected! Triggering callback\n");
-                        g_idle_add(trigger_callback_idle, monitor);
-                        monitor->x11_thread_running = FALSE; // Stop monitoring
-                        break;
-                    }
-                    
-                    XFreeEventData(display, &event.xcookie);
-                }
+        display = XOpenDisplay(NULL);
+        if (!display) {
+            if (monitor) monitor->consecutive_failures++;
+            // Only warn on first failure or every 10th failure to avoid log spam
+            if (!monitor || monitor->consecutive_failures == 1 || monitor->consecutive_failures % 10 == 0) {
+                g_warning("Failed to open X11 display for idle time detection (failures: %d)",
+                         monitor ? monitor->consecutive_failures : 0);
             }
-        } else {
-            // Small sleep to avoid busy waiting
-            usleep(10000); // 10ms
+            return -1;
+        }
+        created_display = TRUE;
+        
+        // Store for reuse if we have a monitor
+        if (monitor && !monitor->shared_display) {
+            monitor->shared_display = display;
+            created_display = FALSE;  // Don't close it later
         }
     }
     
-    return NULL;
-}
-
-static gboolean setup_x11_monitoring(InputMonitor *monitor) {
-    // Try to connect to X11 display
-    monitor->x11_display = XOpenDisplay(NULL);
-    if (!monitor->x11_display) {
-        g_warning("Failed to open X11 display for global input monitoring");
-        return FALSE;
-    }
+    static int event_base = -1, error_base = -1;
+    static gboolean extension_checked = FALSE;
     
-    // Check for XInput2 extension
-    int event, error;
-    if (!XQueryExtension(monitor->x11_display, "XInputExtension", &monitor->xi_opcode, &event, &error)) {
-        g_warning("XInput extension not available");
-        XCloseDisplay(monitor->x11_display);
-        monitor->x11_display = NULL;
-        return FALSE;
-    }
-    
-    int major = 2, minor = 0;
-    if (XIQueryVersion(monitor->x11_display, &major, &minor) != Success) {
-        g_warning("XInput2 not available");
-        XCloseDisplay(monitor->x11_display);
-        monitor->x11_display = NULL;
-        return FALSE;
-    }
-    
-    // Start monitoring thread
-    monitor->x11_thread_running = TRUE;
-    if (pthread_create(&monitor->x11_thread, NULL, x11_monitor_thread, monitor) != 0) {
-        g_warning("Failed to create X11 monitoring thread");
-        monitor->x11_thread_running = FALSE;
-        XCloseDisplay(monitor->x11_display);
-        monitor->x11_display = NULL;
-        return FALSE;
-    }
-    
-    return TRUE;
-}
-
-static void cleanup_x11_monitoring(InputMonitor *monitor) {
-    if (monitor->x11_thread_running) {
-        monitor->x11_thread_running = FALSE;
-        
-        // Wait for thread to finish
-        pthread_join(monitor->x11_thread, NULL);
-    }
-    
-    if (monitor->x11_display) {
-        XCloseDisplay(monitor->x11_display);
-        monitor->x11_display = NULL;
-    }
-}
-
-int input_monitor_get_idle_time(InputMonitor *monitor) {
-    (void)monitor; // Not needed for this function
-    
-    Display *display = XOpenDisplay(NULL);
-    if (!display) {
-        g_warning("Failed to open X11 display for idle time detection");
-        return -1;
-    }
-    
-    int event_base, error_base;
-    if (!XScreenSaverQueryExtension(display, &event_base, &error_base)) {
-        g_warning("XScreenSaver extension not available");
-        XCloseDisplay(display);
-        return -1;
+    // Check extension only once
+    if (!extension_checked) {
+        if (!XScreenSaverQueryExtension(display, &event_base, &error_base)) {
+            g_warning("XScreenSaver extension not available - idle detection will not work");
+            if (created_display) XCloseDisplay(display);
+            return -1;
+        }
+        extension_checked = TRUE;
     }
     
     XScreenSaverInfo *info = XScreenSaverAllocInfo();
     if (!info) {
         g_warning("Failed to allocate XScreenSaverInfo");
-        XCloseDisplay(display);
+        if (created_display) XCloseDisplay(display);
         return -1;
     }
+    
+    // Use XSync to ensure we get the latest state
+    XSync(display, False);
     
     if (!XScreenSaverQueryInfo(display, DefaultRootWindow(display), info)) {
-        g_warning("Failed to query idle time");
+        if (monitor) monitor->consecutive_failures++;
+        if (!monitor || monitor->consecutive_failures == 1 || monitor->consecutive_failures % 10 == 0) {
+            g_warning("Failed to query idle time (failures: %d)",
+                     monitor ? monitor->consecutive_failures : 0);
+        }
         XFree(info);
-        XCloseDisplay(display);
+        if (created_display) XCloseDisplay(display);
         return -1;
     }
     
-    int idle_seconds = info->idle / 1000;  // Convert milliseconds to seconds
+    // Reset failure counter on success
+    if (monitor) monitor->consecutive_failures = 0;
     
+    int idle_milliseconds = info->idle;
     XFree(info);
-    XCloseDisplay(display);
     
-    return idle_seconds;
+    // Close display only if we created it for this call
+    if (created_display) {
+        XCloseDisplay(display);
+    }
+    
+    // Return milliseconds for more precision
+    return idle_milliseconds;
 }

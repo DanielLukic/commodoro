@@ -10,6 +10,7 @@ name = "commodoro_tray_icon"
 commodoro-timer = { path = "../rust-timer" }
 libc = { workspace = true }
 cairo-rs = { version = "0.19", features = ["v1_16"] }
+cairo-sys-rs = "0.19"
 glib = "0.19"
 
 [build-dependencies]

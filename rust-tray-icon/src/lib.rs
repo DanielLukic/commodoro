@@ -34,11 +34,8 @@ const STATE_COLORS: [StateColor; 5] = [
 
 impl TrayIcon {
     fn new() -> Self {
-        let surface = ImageSurface::create(Format::ARgb32, 64, 64)
-            .expect("Failed to create surface");
-        
         let mut icon = TrayIcon {
-            icon_surface: Box::into_raw(Box::new(surface)) as *mut c_void,
+            icon_surface: std::ptr::null_mut(),
             size: 64,
             state: TimerState::Idle,
             remaining_seconds: 0,
@@ -51,11 +48,18 @@ impl TrayIcon {
     }
     
     fn update_icon_surface(&mut self) {
-        let surface = unsafe {
-            &*(self.icon_surface as *mut ImageSurface)
-        };
+        // Destroy old surface if it exists
+        if !self.icon_surface.is_null() {
+            unsafe {
+                cairo_sys::cairo_surface_destroy(self.icon_surface as *mut cairo_sys::cairo_surface_t);
+            }
+        }
         
-        let cr = Context::new(surface).expect("Failed to create cairo context");
+        // Create new surface
+        let surface = ImageSurface::create(Format::ARgb32, self.size, self.size)
+            .expect("Failed to create surface");
+        
+        let cr = Context::new(&surface).expect("Failed to create cairo context");
         
         // Clear background with transparent
         cr.set_operator(cairo::Operator::Clear);
@@ -127,6 +131,17 @@ impl TrayIcon {
         
         // Ensure all drawing operations are finished
         surface.flush();
+        
+        // Store the new surface
+        // We need to store the actual cairo_surface_t pointer that C code can use
+        // The cairo-rs Surface type wraps the raw pointer, we need to extract it
+        self.icon_surface = unsafe {
+            use cairo::ffi::cairo_surface_t;
+            // Get a reference-counted raw pointer
+            let ptr = surface.to_raw_none();
+            cairo_sys::cairo_surface_reference(ptr as *mut cairo_surface_t);
+            ptr as *mut c_void
+        };
     }
     
     fn get_rounded_minutes(&self) -> i32 {
@@ -168,7 +183,7 @@ pub extern "C" fn tray_icon_free(icon: *mut TrayIcon) {
         
         // Free the Cairo surface
         if !icon.icon_surface.is_null() {
-            let _ = Box::from_raw(icon.icon_surface as *mut ImageSurface);
+            cairo_sys::cairo_surface_destroy(icon.icon_surface as *mut cairo_sys::cairo_surface_t);
         }
         
         // Free the tooltip text
@@ -234,6 +249,12 @@ pub extern "C" fn tray_icon_get_surface(icon: *mut TrayIcon) -> *mut c_void {
     }
     
     unsafe {
-        (*icon).icon_surface
+        let icon = &*icon;
+        if icon.icon_surface.is_null() {
+            return std::ptr::null_mut();
+        }
+        
+        // Return the stored cairo_surface_t pointer directly
+        icon.icon_surface
     }
 }

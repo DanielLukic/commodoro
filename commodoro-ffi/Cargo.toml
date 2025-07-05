@@ -16,3 +16,4 @@ commodoro-break-overlay = { path = "../rust-break-overlay" }
 commodoro-settings-dialog = { path = "../rust-settings-dialog" }
 # commodoro-tray-status-icon = { path = "../rust-tray-status-icon" }  # Reverted to C
 commodoro-dbus-service = { path = "../rust-dbus-service" }
+commodoro-input-monitor = { path = "../rust-input-monitor" }

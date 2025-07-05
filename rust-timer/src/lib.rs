@@ -120,28 +120,24 @@ impl Timer {
                 self.work_session_just_finished = true;
                 
                 if self.session_count % self.sessions_until_long == 0 {
-                    self.set_state(TimerState::LongBreak);
+                    // Set duration BEFORE changing state to avoid 00:00 display
                     self.remaining_seconds = self.get_duration_for_state(TimerState::LongBreak);
                     self.total_seconds = self.remaining_seconds;
+                    self.set_state(TimerState::LongBreak);
                 } else {
-                    self.set_state(TimerState::ShortBreak);
+                    // Set duration BEFORE changing state to avoid 00:00 display
                     self.remaining_seconds = self.get_duration_for_state(TimerState::ShortBreak);
                     self.total_seconds = self.remaining_seconds;
+                    self.set_state(TimerState::ShortBreak);
                 }
                 
                 self.session_count += 1;
             }
             TimerState::ShortBreak | TimerState::LongBreak => {
-                if self.auto_start_work_after_break {
-                    self.set_state(TimerState::Work);
-                    self.remaining_seconds = self.get_duration_for_state(TimerState::Work);
-                    self.total_seconds = self.remaining_seconds;
-                    self.work_session_just_finished = false;
-                } else {
-                    self.set_state(TimerState::Idle);
-                    self.remaining_seconds = self.get_duration_for_state(TimerState::Work);
-                    self.total_seconds = self.remaining_seconds;
-                }
+                // Always transition to idle first, let the app handle auto-start via input monitoring
+                self.remaining_seconds = self.get_duration_for_state(TimerState::Work);
+                self.total_seconds = self.remaining_seconds;
+                self.set_state(TimerState::Idle);
             }
             _ => {}
         }

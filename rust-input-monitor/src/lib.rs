@@ -105,6 +105,10 @@ fn monitor_x11_input(
     callback_ptr: *mut c_void,
     user_data: *mut c_void,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Add a small delay before starting to monitor
+    // This prevents catching events from the break overlay dismissal
+    thread::sleep(Duration::from_millis(500));
+    
     // Connect to X11
     let (conn, screen_num) = RustConnection::connect(None)?;
     let screen = &conn.setup().roots[screen_num];

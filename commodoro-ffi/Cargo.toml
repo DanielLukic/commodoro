@@ -11,4 +11,3 @@ crate-type = ["staticlib"]
 commodoro-timer = { path = "../rust-timer" }
 commodoro-config = { path = "../rust-config" }
 commodoro-audio = { path = "../rust-audio" }
-commodoro-input-monitor = { path = "../rust-input-monitor" }

@@ -9,7 +9,7 @@
 #include "settings_dialog.h"
 #include "break_overlay.h"
 #include "config_rust.h"
-#include "input_monitor_rust.h"
+#include "input_monitor.h"
 #include "dbus_service.h"
 
 typedef struct {

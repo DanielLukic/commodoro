@@ -1,0 +1,14 @@
+[package]
+name = "commodoro-input-monitor"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "commodoro_input_monitor"
+
+[dependencies]
+libc = { workspace = true }
+x11rb = { version = "0.13", features = ["xinput", "screensaver"] }
+
+[build-dependencies]
+cbindgen = "0.26"

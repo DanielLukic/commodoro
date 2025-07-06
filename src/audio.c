@@ -4,10 +4,33 @@
 #include <math.h>
 #include <alsa/asoundlib.h>
 #include <pthread.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
 
 #define SAMPLE_RATE 44100
 #define CHANNELS 1
 #define BUFFER_SIZE 4096
+
+// WAV file header structure
+typedef struct {
+    char riff[4];           // "RIFF"
+    uint32_t size;          // File size - 8
+    char wave[4];           // "WAVE"
+    char fmt[4];            // "fmt "
+    uint32_t fmt_size;      // Format chunk size (16)
+    uint16_t format;        // Audio format (1 = PCM)
+    uint16_t channels;      // Number of channels
+    uint32_t sample_rate;   // Sample rate
+    uint32_t byte_rate;     // Bytes per second
+    uint16_t block_align;   // Bytes per sample * channels
+    uint16_t bits_per_sample; // Bits per sample
+    char data[4];           // "data"
+    uint32_t data_size;     // Data size
+} WavHeader;
 
 typedef struct {
     short *buffer;
@@ -18,12 +41,18 @@ typedef struct {
 struct _AudioManager {
     double volume;
     gboolean enabled;
+    gboolean use_aplay;  // TRUE if aplay is available and should be used
 };
 
 static void* play_sound_thread(void *data);
+static void* play_sound_aplay_thread(void *data);
 static void play_sound_async(AudioManager *audio, const char *sound_type);
 static SoundData* generate_chime(const char *sound_type, double volume);
 static void free_sound_data(SoundData *data);
+static gboolean check_aplay_available(void);
+static void generate_wav_files(void);
+static void write_wav_file(const char *filename, short *buffer, int samples);
+static const char* get_wav_filename(const char *sound_type);
 
 AudioManager* audio_manager_new(void) {
     AudioManager *audio = g_malloc0(sizeof(AudioManager));
@@ -31,6 +60,16 @@ AudioManager* audio_manager_new(void) {
     // Set default values
     audio->volume = 0.7;  // 70% volume
     audio->enabled = TRUE;
+    
+    // Check if aplay is available
+    audio->use_aplay = check_aplay_available();
+    if (audio->use_aplay) {
+        g_print("Audio: Using aplay for sound playback\n");
+        // Generate WAV files if using aplay
+        generate_wav_files();
+    } else {
+        g_print("Audio: Using ALSA for sound playback\n");
+    }
     
     return audio;
 }
@@ -205,25 +244,42 @@ static void* play_sound_thread(void *data) {
 static void play_sound_async(AudioManager *audio, const char *sound_type) {
     if (!audio) return;
     
-    // Generate the sound data
-    SoundData *sound = generate_chime(sound_type, audio->volume);
-    if (!sound) {
-        g_warning("Failed to generate sound for: %s", sound_type);
-        return;
+    if (audio->use_aplay) {
+        // Use aplay to play pre-generated WAV file
+        const char *wav_file = get_wav_filename(sound_type);
+        
+        pthread_t thread;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        
+        char *filename = g_strdup(wav_file);
+        if (pthread_create(&thread, &attr, play_sound_aplay_thread, filename) != 0) {
+            g_warning("Failed to create aplay thread");
+            g_free(filename);
+        }
+        
+        pthread_attr_destroy(&attr);
+    } else {
+        // Use ALSA backend
+        SoundData *sound = generate_chime(sound_type, audio->volume);
+        if (!sound) {
+            g_warning("Failed to generate sound for: %s", sound_type);
+            return;
+        }
+        
+        pthread_t thread;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        
+        if (pthread_create(&thread, &attr, play_sound_thread, sound) != 0) {
+            g_warning("Failed to create audio thread");
+            free_sound_data(sound);
+        }
+        
+        pthread_attr_destroy(&attr);
     }
-    
-    // Create detached thread to play sound asynchronously
-    pthread_t thread;
-    pthread_attr_t attr;
-    pthread_attr_init(&attr);
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    
-    if (pthread_create(&thread, &attr, play_sound_thread, sound) != 0) {
-        g_warning("Failed to create audio thread");
-        free_sound_data(sound);
-    }
-    
-    pthread_attr_destroy(&attr);
 }
 
 static SoundData* generate_chime(const char *sound_type, double volume) {
@@ -323,4 +379,82 @@ static void free_sound_data(SoundData *data) {
         g_free(data->buffer);
         g_free(data);
     }
+}
+
+static gboolean check_aplay_available(void) {
+    // Check if aplay command exists
+    return g_find_program_in_path("aplay") != NULL;
+}
+
+static const char* get_wav_filename(const char *sound_type) {
+    static char filename[256];
+    snprintf(filename, sizeof(filename), "/tmp/commodoro_%s.wav", sound_type);
+    return filename;
+}
+
+static void write_wav_file(const char *filename, short *buffer, int samples) {
+    FILE *fp = fopen(filename, "wb");
+    if (!fp) {
+        g_warning("Failed to create WAV file: %s", filename);
+        return;
+    }
+    
+    // Prepare WAV header
+    WavHeader header;
+    memcpy(header.riff, "RIFF", 4);
+    header.size = 36 + samples * sizeof(short);
+    memcpy(header.wave, "WAVE", 4);
+    memcpy(header.fmt, "fmt ", 4);
+    header.fmt_size = 16;
+    header.format = 1;  // PCM
+    header.channels = CHANNELS;
+    header.sample_rate = SAMPLE_RATE;
+    header.bits_per_sample = 16;
+    header.byte_rate = SAMPLE_RATE * CHANNELS * header.bits_per_sample / 8;
+    header.block_align = CHANNELS * header.bits_per_sample / 8;
+    memcpy(header.data, "data", 4);
+    header.data_size = samples * sizeof(short);
+    
+    // Write header and data
+    fwrite(&header, sizeof(header), 1, fp);
+    fwrite(buffer, sizeof(short), samples, fp);
+    
+    fclose(fp);
+}
+
+static void generate_wav_files(void) {
+    const char *sound_types[] = {
+        "work_start", "break_start", "session_complete",
+        "long_break_start", "timer_finish", "idle_pause", "idle_resume"
+    };
+    
+    for (int i = 0; i < 7; i++) {
+        const char *wav_file = get_wav_filename(sound_types[i]);
+        
+        // Check if file already exists
+        if (access(wav_file, F_OK) == 0) {
+            continue;  // File already exists, skip
+        }
+        
+        // Generate the chime
+        SoundData *sound = generate_chime(sound_types[i], 1.0);  // Max volume for WAV files
+        if (sound) {
+            write_wav_file(wav_file, sound->buffer, sound->samples);
+            free_sound_data(sound);
+        }
+    }
+}
+
+static void* play_sound_aplay_thread(void *data) {
+    char *filename = (char*)data;
+    
+    // Build aplay command
+    char command[512];
+    snprintf(command, sizeof(command), "aplay -q \"%s\" 2>/dev/null", filename);
+    
+    // Execute aplay
+    system(command);
+    
+    g_free(filename);
+    return NULL;
 }
